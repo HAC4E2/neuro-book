@@ -17,7 +17,7 @@ export type OverviewWork = {
     branch: string | null; checkoutKey: string | null; executionRule: string | null; uncommitted: boolean;
     taskCounts: Record<TaskStatus | "unset" | "invalid", number>; openRequired: number; activeLeases: ActiveLease[]; tasks: OverviewTask[];
 };
-export type InboxQuestion = {kind: "question"; workId: string; taskId: string; artifactId: string; questionId: string; label: string; type: string; version: number; since: number; askedBy: string | null; askerActive: boolean | null};
+export type InboxQuestion = {kind: "question"; workId: string; taskId: string; artifactId: string; artifactTitle: string | null; questionId: string; label: string; type: string; version: number; since: number; askedBy: string | null; askerActive: boolean | null};
 export type InboxConflict = {kind: "number_conflict"; label: string; live: boolean};
 export type InboxItem = InboxQuestion | InboxConflict;
 export type Overview = {

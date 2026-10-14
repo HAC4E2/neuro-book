@@ -44,7 +44,7 @@ export type ArtifactSummary = {
 
 /** 收件箱：只放要开发者动手的事。`askedBy` 是运行时的会话键（provenance），读不到为 null。 */
 export type InboxItem =
-    | {kind: "question"; workId: string; taskId: string; artifactId: string; questionId: string; label: string; type: string; version: number; since: number; askedBy: string | null}
+    | {kind: "question"; workId: string; taskId: string; artifactId: string; artifactTitle: string | null; questionId: string; label: string; type: string; version: number; since: number; askedBy: string | null}
     | {kind: "number_conflict"; label: string; live: boolean};
 
 export type TaskView = TaskRecord & RecordSource & {uncommitted: boolean; leases: ActiveLease[]; artifacts: ArtifactSummary[]; documents: DocumentEntry[]};
@@ -126,7 +126,7 @@ async function summarizeArtifacts(root: string, mainRoot: string, workId: string
         if (taskId !== null) {
             for (const {question} of open) {
                 const asker = root === mainRoot ? await verifiedProvenance(mainRoot, versionPath(ref, question.since), warnings) : null;
-                inbox.push({kind: "question", workId, taskId, artifactId, questionId: question.id, label: question.label, type: question.type, version: latest.version, since: question.since, askedBy: asker?.session.key ?? null});
+                inbox.push({kind: "question", workId, taskId, artifactId, artifactTitle: latest.title, questionId: question.id, label: question.label, type: question.type, version: latest.version, since: question.since, askedBy: asker?.session.key ?? null});
             }
         }
         summaries.push({artifactId, kind: latest.kind, title: latest.title, version: latest.version, state: latest.state, publishedAt: latest.publishedAt, openRequired: open.length, adoption: adoptionOf(snapshot.answers, snapshot.acks)});
