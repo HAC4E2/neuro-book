@@ -19,6 +19,7 @@ import {resolveTerminalTools} from "./terminal-stream.js";
 import {createSessionIo} from "./session-io.js";
 import {GithubCache} from "./github.js";
 import {CheckoutStatusCache, checkoutsView, githubView, runsView} from "./live-views.js";
+import {createSessionTitles} from "./session-titles.js";
 
 /**
  * 面板服务：两个来源（`Bun.serve` 各一个）。
@@ -128,6 +129,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
     const controls = new ControlRegistry();
     const notifier = new Notifier({state, client: options.herdr, audit, locks, controls, log, onChange: () => state.notifyChanged()});
     const writes = createWriteHandler({state, envelope, log, audit, afterWrite: () => void notifier.tick()});
+    const sessionTitles = createSessionTitles(options.env, log);
     const sessionIo = createSessionIo({state, notifier, locks, controls, audit, client: options.herdr, envelope, log});
     const terminalTools = resolveTerminalTools(options.env, options.herdr?.socketPath ?? null, (name) => Bun.which(name));
     if (!terminalTools.available) log(`网页终端不可用：${terminalTools.reason}`);
@@ -222,7 +224,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                 return view ? envelope(view.data, view.warnings, null) : notFound();
             }
             if (route === "sessions" && rest.length === 0) {
-                const {data, warnings} = sessionsView(state);
+                const {data, warnings} = await sessionsView(state, sessionTitles);
                 return envelope(data, warnings, null);
             }
             if (route === "search" && rest.length === 0) return search(req, url);

@@ -63,7 +63,7 @@
 | `/api/docs/tree?checkout=` | 文档树（按类型分组）；不是主工作区时附与 master 的差异（见下） |
 | `/api/docs/file?checkout=&path=` | 一份文档：原文、frontmatter、标题、这个 checkout 上最近 5 次提交、哪些已检出的分支改了它（`changedIn`） |
 | `/api/files?path=` | 编辑页：主工作区里一个文件的原文与 sha256、种类（Work README、Task README、文档类产物、主工作区文档）、能不能编辑与原因、未提交的改动（已暂存与工作区分开）、是不是暂存区里一次改名的一端、改过它的分支、根级治理入口的非空行上限。编辑白名单之外的路径回 404 |
-| `/api/sessions` | herdr 的状态（可用、订阅还是轮询、漏事件数）与 pane（是否开在本仓库里）、会话持有的租约与它的运行、无主的运行、checkout 列表（是哪个 Work 的执行 worktree） |
+| `/api/sessions` | herdr 的状态（可用、订阅还是轮询、漏事件数）与 pane（是否开在本仓库里、`scrollback` 能往回翻多少行，全屏程序时是 0）、会话持有的租约与它的运行、无主的运行、checkout 列表（是哪个 Work 的执行 worktree）。pane 与会话各带 `title: {text, source} \| null`（t15 阶段 4 第 3 批，决定点 19）：从本机 Agent 的会话文件里读，Claude Code 取会话文件末尾一段里的 `custom-title`、`agent-name`、`ai-title`（先后如此），Codex 取 `session_index.jsonl` 的 `thread_name`，omp 取会话文件第一行的 `title`；只读、按文件大小与修改时间缓存、不写审计，读不出为 null（见 `src/server/session-titles.ts`） |
 | `/api/runs` | “在跑”（t14）：经 nbdev 起的服务（`procs`，登记加现算的状态，还活着的与 24 小时内结束的）、会话派出的运行、无主的运行；后两块按登记的 pid 去重 |
 | `/api/checkouts` | checkout 页（t14）：分支、HEAD、执行 worktree，加未提交条数、相对 master 的领先落后、在跑的服务、`home` 是它的 Task；请求时现算，每个 checkout 留 10 秒 |
 | `/api/github` | GitHub 只读页（t14）：开着的 PR（检查汇总）与 Issue、状态与取的时刻；见“现场” |

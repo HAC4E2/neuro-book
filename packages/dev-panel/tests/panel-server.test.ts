@@ -136,7 +136,13 @@ describe("面板服务（场景）", () => {
         while (!messages.some((message) => message.type === "changed" && message.parts?.includes("sessions"))) await Bun.sleep(10);
         expect(Date.now() - started).toBeLessThan(1_000);
         const sessions = await panel.json<{panes: Array<{paneId: string; status: string; inRepository: boolean}>}>("/api/sessions");
-        expect(sessions.body.data.panes).toEqual([expect.objectContaining({paneId: "w9:p1", status: "working", inRepository: true})]);
+        expect(sessions.body.data.panes).toEqual([expect.objectContaining({paneId: "w9:p1", status: "working", inRepository: true, title: null})]);
+        // 会话标题从本机的 Claude Code 会话文件里读（t15 阶段 4 第 3 批）：写上文件之后下一次请求就带上。
+        const project = join(panelEnv(fixture).HOME!, ".claude", "projects", "-repo");
+        await mkdir(project, {recursive: true});
+        await writeFile(join(project, `${sessionId}.jsonl`), `${JSON.stringify({type: "ai-title", aiTitle: "会话页重做", sessionId})}\n`);
+        const titled = await panel.json<{panes: Array<{paneId: string; title: {text: string; source: string} | null}>}>("/api/sessions");
+        expect(titled.body.data.panes.map((pane) => [pane.paneId, pane.title])).toEqual([["w9:p1", {text: "会话页重做", source: "claude-ai-title"}]]);
     }, 30_000);
 
     test("场景 2：产物页的题与状态、答复；iframe 地址在产物来源上、带随机前缀；改了页面没发布时标出来；产物来源只给 .agents/works/ 下的文件", async () => {
