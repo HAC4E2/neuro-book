@@ -100,8 +100,9 @@ body {
     font-weight: 600;
     line-height: 1.3;
 }
+/* 区标题用 --text-lg：nbook 主题里 --text-md 与正文的 --text-sm 同为 13px，用它区标题就和正文一样大。 */
 .nbdev-heading {
-    font-size: var(--text-md);
+    font-size: var(--text-lg);
     font-weight: 600;
 }
 .nbdev-body {
