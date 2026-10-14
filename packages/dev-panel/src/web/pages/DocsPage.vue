@@ -86,7 +86,7 @@ function go(query: Record<string, string | undefined>): void {
                             <h2 class="nbdev-heading">最近的改动</h2>
                             <ol class="nbdev-stack-tight">
                                 <li v-for="commit in file.data.value.recent" :key="commit.sha" class="flex min-w-0 items-center gap-2">
-                                    <TruncatedText class="nbdev-secondary shrink-0" :text="commit.sha.slice(0, 9)" mono /><span class="min-w-0 flex-1 truncate">{{ commit.subject }}</span><span class="nbdev-secondary shrink-0">{{ relativeDay(commit.date) }}</span>
+                                    <span class="nbdev-secondary shrink-0"><TruncatedText :text="commit.sha.slice(0, 9)" mono /></span><span class="min-w-0 flex-1 truncate">{{ commit.subject }}</span><span class="nbdev-secondary shrink-0">{{ relativeDay(commit.date) }}</span>
                                 </li>
                             </ol>
                         </section>

@@ -29,7 +29,7 @@ interface TruncatedTextProps {
 }
 ```
 
-没有事件、插槽与 expose；attrs 落到 `Tooltip` 的根上（不保证透到文字元素上），要控制宽度就控制父级。
+没有事件、插槽与 expose；写在零件上的 attrs（`class`、`style` 在内）不生效：根是 nb-ui `Tooltip`，它的根是 reka 的 `TooltipProvider`，`inheritAttrs: false` 且不转发。要改颜色、宽度或 flex 行为，就在外面包一层带类的 `span`（文字颜色会继承下来）。
 
 ## 状态
 

@@ -101,7 +101,7 @@ function evidenceUrl(path: string): string | null {
                         <p v-if="page.data.value.detail.commits.entries.length === 0" class="nbdev-empty">没有</p>
                         <ol v-else class="nbdev-stack-tight nbdev-small">
                             <li v-for="commit in page.data.value.detail.commits.entries" :key="commit.sha" class="flex min-w-0 items-center gap-2">
-                                <TruncatedText class="nbdev-secondary shrink-0" :text="commit.sha.slice(0, 9)" mono />
+                                <span class="nbdev-secondary shrink-0"><TruncatedText :text="commit.sha.slice(0, 9)" mono /></span>
                                 <span class="min-w-0 flex-1 truncate" :title="commit.subject">{{ commit.subject }}</span>
                                 <span class="nbdev-secondary shrink-0">{{ relativeDay(commit.date) }}</span>
                             </li>
