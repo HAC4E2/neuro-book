@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: runtime.browser-host
 owners:
   - application-runtime
@@ -35,7 +35,7 @@ owners:
 
 ## 输入与前置条件
 
-- 加载鉴权插件时用户已登录，未登录时交给鉴权插件的登录流程（鉴权插件尚未实现）。
+- （planned）加载鉴权插件时用户已登录，未登录时交给鉴权插件的登录流程；缺口：鉴权插件尚未实现，当前没有登录流程。
 - 服务端运行实例已就绪（请求在就绪前等待，[`runtime.server-host`](server-host.md)）。
 - 浏览器不低于基线：Chrome、Edge 119，Firefox 124，Safari 17.4。基线由内核用到的 `Promise.withResolvers`、`AbortSignal.any` 决定，前端构建目标与它一致。
 
@@ -48,8 +48,8 @@ owners:
 3. 首连：读取客户端身份与地址栏的 `project` 参数，建立浏览器节点，按引导给出的端口连接 RPC 端口并完成握手（[远程服务与 RPC 协议](plugin-channel.md)；带 `project` 参数时握手同时请求绑定，项目没在运行时服务端会先启动它，握手可能要等几秒），之后才建立运行实例，使插件激活时远程服务已可用。连接或握手失败显示带重试的连接失败页；握手以 `wire-version` 被拒显示版本不一致页；以 `project-unavailable` 被拒显示“无法打开项目”页。
 4. 建立窗口运行实例：浏览器节点交给运行实例；按集合登记本外壳构建进去的浏览器插件，插件集合以服务端为准，浏览器不自行增减；集合里没有浏览器入口的插件只登记它描述里的顶层贡献。内置插件的浏览器定义随外壳构建，引导只给 id 与版本；第三方插件的浏览器入口随 [`runtime.plugin-code-loading`](plugin-code-loading.md) 加入，届时引导响应加回清单并建立宿主模块表。
 5. 激活 `nbook.workbench`，解析它交出的页面表，恢复布局，挂载根组件。窗口就绪的状态带绑定结果 `project: {id, name, title, generation} | null`（`title` 是引导给的显示名，引导时没拿到则退回短名）；宿主以本地能力把它提供给浏览器插件（例如工作台在标题栏显示 `title`），插件不经远程服务另取。整页导航同样是本地能力（`windowNavigationKey`）：`navigateDocument(href)` 整页加载到地址（例如“打开项目”），`reloadDocument()` 重新载入当前文档、地址不变，`openExternal(href)` 在新标签页打开外部地址、返回 `opened` 或被浏览器拦截时的 `blocked`（后两个用于[外壳四](../ui/workbench-shell.md)的“重新载入”与“文档”命令）；三者都只发出请求，页面已有的离开保护照常生效；另有 `currentUrl()`（当前文档的地址）与 `replaceUrl(href)`（不导航地替换地址栏，读过一次性参数后去掉它们，例如编辑器的继续写作参数）；远程服务链路的在线、离线与变化也是（`windowConnectionKey`：`state()` 与 `onChange(listener)`，例如配置插件在回到在线时重新订阅失败的层）；时钟 `clockKey` 与服务端相同。页面由工作台的贡献点 `workbench.pages` 汇集（工作台自己的 `/` 加上其它插件贡献的页面，例如开发模式的 `/lab`）；宿主按页面表建立路由，等首次导航完成（当前页面的模块已加载）才挂载，页面表之外的路径显示“页面不存在”。声明了“离开时整页加载”的页面，导航去别的路径时整页加载。
-6. 可见视图触发 `onView`，激活其所属入口；不可见视图的入口不加载。
-7. 订阅插件集合变化（经远程服务，随 [`runtime.plugin-hot-plug`](plugin-hot-plug.md) 实现）。订阅建立（含重连后重建）时，窗口核对服务端发来的集合修订号，与引导时取得的不同就重新取得集合并对齐，保证引导与订阅之间发生的变化不会丢失；此后的插件集合变化经订阅到达，按 `runtime.plugin-hot-plug` 同步。
+6. （planned，缺口：全仓库找不到 `onView:<id>` 触发逻辑）可见视图触发 `onView`，激活其所属入口；不可见视图的入口不加载。
+7. （planned，随 [`runtime.plugin-hot-plug`](plugin-hot-plug.md) 实现）订阅插件集合变化（经远程服务）。订阅建立（含重连后重建）时，窗口核对服务端发来的集合修订号，与引导时取得的不同就重新取得集合并对齐，保证引导与订阅之间发生的变化不会丢失；此后的插件集合变化经订阅到达，按 `runtime.plugin-hot-plug` 同步。
 
 **断线与重连：** 窗口可用后 RPC 链路意外断开时，窗口转为离线：界面保留，页面根元素标注离线并显示一条离线横幅，远程调用返回 `unavailable`。窗口按退避间隔重连（0.5、1、2、4、8 秒，之后每 10 秒），每次先重新取引导（服务端重启后 RPC 端口可能已变），再连接与握手：
 
@@ -109,19 +109,19 @@ owners:
 
 - **owner**：application-runtime（浏览器宿主适配器）；内核合同沿用 [`runtime.application`](application.md)。
 - **迁移**：v2 由前端入口建立窗口运行实例，页面组件不创建运行时；旧应用的 Nuxt client plugin 与页面内创建路径不迁移。
-- **安全**：加载鉴权插件后，引导接口与插件文件需要登录；浏览器不获得状态根、安装目录等服务端内部路径，也不获得数据库对象与凭据（引导响应只有协议版本、修订号、插件 id 与版本、RPC 端口与路径）。用户自己登记的项目目录路径可以经 `nbook.projects` 显示给用户（[`runtime.projects`](projects.md)）。
-- **现状**：懒激活（场景 3）、插件集合的订阅与变化（场景 5、7 与场景 6 的插件集合部分）、鉴权与第三方浏览器入口尚未实现；布局恢复随工作台外壳加入。
+- **安全**：（planned，鉴权插件未实现前不生效）加载鉴权插件后，引导接口与插件文件需要登录；浏览器不获得状态根、安装目录等服务端内部路径，也不获得数据库对象与凭据（引导响应只有协议版本、修订号、插件 id 与版本、RPC 端口与路径）。用户自己登记的项目目录路径可以经 `nbook.projects` 显示给用户（[`runtime.projects`](projects.md)）。
+- **现状**：按需激活（输出 6）、插件集合的订阅与热插拔联动（输出 7）、鉴权（“输入与前置条件”、本节“安全”）与第三方浏览器入口（随 [`runtime.plugin-code-loading`](plugin-code-loading.md)）标 `(planned)`；布局恢复随工作台外壳加入。
 - **兼容**：引导接口是宿主内部协议，以协议版本协商（引导响应加入 RPC 端口时升为 2）；远程服务链路以 wire 协议版本协商；外壳与服务端版本不一致时提示刷新。浏览器基线见输入与前置条件。
 
 ## 验收与 Smoke
 
 1. **挂载前建立实例。** 页面首屏出现前，窗口运行实例已建立、`nbook.workbench` 已激活，布局从持久化中恢复。
 2. **引导失败。** 外壳已经加载、但引导请求失败时（例如服务端正在重启、网络中断；同源部署下服务端完全停止时浏览器连外壳都取不到，不属于本场景），显示带重试的连接失败页，没有半个工作台；引导恢复后重试成功。
-3. **懒激活。** 资源管理器视图不可见时 Files 的浏览器入口未激活；展开侧栏显示该视图时激活。
+3. （planned，随输出 6 的按需激活）**懒激活。** 资源管理器视图不可见时 Files 的浏览器入口未激活；展开侧栏显示该视图时激活。
 4. **多窗口隔离。** 两个窗口中一个关闭，另一个不受影响，服务端不停止；一个窗口的入口失败不影响另一个窗口。
-5. **插件集合变化。** 服务端启用一个插件后，两个已打开窗口都出现其视图，不刷新页面。
-6. **离线与重连。** 断开 RPC 链路后窗口标注离线；重连后离线标注消失、订阅收到 `onResync` 且之后的事件到达。断开期间服务端禁用一个插件，重连后窗口发现修订号变化并移除该插件（随热插拔）。
-7. **引导与订阅之间的变化。** 引导完成后、插件集合订阅建立前服务端启用一个插件，订阅建立后窗口出现该插件的视图。
+5. （planned，随输出 7 的插件集合订阅）**插件集合变化。** 服务端启用一个插件后，两个已打开窗口都出现其视图，不刷新页面。
+6. **离线与重连。** 断开 RPC 链路后窗口标注离线；重连后离线标注消失、订阅收到 `onResync` 且之后的事件到达。（planned，随输出 7）断开期间服务端禁用一个插件，重连后窗口发现修订号变化并移除该插件。
+7. （planned，随输出 7 的插件集合订阅）**引导与订阅之间的变化。** 引导完成后、插件集合订阅建立前服务端启用一个插件，订阅建立后窗口出现该插件的视图。
 8. **RPC 连接。** 窗口 ready 后，浏览器插件经远程服务调用服务端插件，提供方看到的调用方是本窗口的实例；客户端身份跨两次窗口启动不变；外站页面连不上 RPC 端口；首次连接失败为可重试的连接失败页；握手 `wire-version` 被拒为版本不一致页。
 9. **刷新与服务端重启。** 刷新页面后，旧页发出、仍在执行的请求收到终止信号，新页是新的实例；服务端换进程后已打开的窗口显示服务端已重启页，不再重连。
 10. **项目绑定**。`/?project=<短名>` 打开的窗口就绪后绑定结果带项目代次，浏览器插件经 `project` 目标调用项目实例；两个窗口绑定同一项目得到同一代次；地址栏没有 `project` 的窗口不绑定。项目未登记或启动失败时显示无法打开项目页，重试成功后继续启动；“不打开项目”回到 `/`。
@@ -148,4 +148,7 @@ Smoke：生产构建的服务端与本机 Chrome 运行场景 1、2、4、13 与
 
 ## 证据
 
+- 实现入口：[`web/main.ts`](../../../packages/neuro-book/src/web/main.ts)、[`web/boot.ts`](../../../packages/neuro-book/src/web/boot.ts)、[`web/mount.ts`](../../../packages/neuro-book/src/web/mount.ts)、[`web/router.ts`](../../../packages/neuro-book/src/web/router.ts)、[`web/host/window.ts`](../../../packages/neuro-book/src/web/host/window.ts)、[`web/host/remote-session.ts`](../../../packages/neuro-book/src/web/host/remote-session.ts)、[`web/host/connection.ts`](../../../packages/neuro-book/src/web/host/connection.ts)、[`web/plugins.ts`](../../../packages/neuro-book/src/web/plugins.ts)、[`shared/browser-bootstrap.ts`](../../../packages/neuro-book/src/shared/browser-bootstrap.ts)、[`server/browser-bootstrap.ts`](../../../packages/neuro-book/src/server/browser-bootstrap.ts)
+- 合同测试：[`web/host/window.test.ts`](../../../packages/neuro-book/src/web/host/window.test.ts)、[`web/host/remote-session.test.ts`](../../../packages/neuro-book/src/web/host/remote-session.test.ts)、[`web/host/client-identity.dom.test.ts`](../../../packages/neuro-book/src/web/host/client-identity.dom.test.ts)、[`web/host/appearance-hint.dom.test.ts`](../../../packages/neuro-book/src/web/host/appearance-hint.dom.test.ts)、[`web/router.dom.test.ts`](../../../packages/neuro-book/src/web/router.dom.test.ts)、[`web/mount.dom.test.ts`](../../../packages/neuro-book/src/web/mount.dom.test.ts)、[`web/FailurePage.dom.test.ts`](../../../packages/neuro-book/src/web/FailurePage.dom.test.ts)、[`web/host/browser-host.test.ts`](../../../packages/neuro-book/src/web/host/browser-host.test.ts)、[`server/browser-bootstrap.test.ts`](../../../packages/neuro-book/src/server/browser-bootstrap.test.ts)、[`architecture.test.ts`](../../../packages/neuro-book/src/architecture.test.ts)
+- Smoke：[`e2e/browser-host.e2e.ts`](../../../packages/neuro-book/e2e/browser-host.e2e.ts)、[`e2e/projects.e2e.ts`](../../../packages/neuro-book/e2e/projects.e2e.ts)、[`e2e/rpc.e2e.ts`](../../../packages/neuro-book/e2e/rpc.e2e.ts)
 - 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P7 与 P11（2026-09-28 启动流程走查批准同源部署加可分离边界与浏览器启动序列，风险门验证见 [G1 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g1/REPORT.md)）；v2 的前端入口见 [NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 方案第 4 节与 [ADR 0023](../../adr/0023-v2-frontend-backend-stack.md)；项目绑定、无法打开项目页与项目已关闭页依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 3 节与开发者 2026-10-07 在 [t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中的确认；加载页跟随上次的明暗（启动序列第 1 步、场景 13）为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md)第二轮第 7 节，开发者 2026-10-12 确认。
