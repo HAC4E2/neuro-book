@@ -40,7 +40,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
         <div role="table" class="nbdev-task-grid nbdev-small" :aria-label="`${workId} 的 Task`" :aria-rowcount="tasks.length + 1">
             <div role="row" class="nbdev-task-row nbdev-task-head nbdev-divider border-b">
                 <span role="columnheader"><span class="sr-only">展开</span></span>
-                <span v-for="column in COLUMNS" :key="column" role="columnheader">{{ column }}</span>
+                <span v-for="(column, index) in COLUMNS" :key="column" role="columnheader" :class="{'nbdev-task-wide': index >= 2}">{{ column }}</span>
             </div>
             <p v-if="tasks.length === 0" class="nbdev-empty px-2 py-6 text-center">这个 Work 还没有 Task</p>
             <template v-for="task in tasks" :key="task.taskId">
@@ -56,25 +56,25 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                         </a>
                     </span>
                     <span role="cell"><StatusChip :status="task.status" /></span>
-                    <span role="cell" class="min-w-0">
+                    <span role="cell" class="nbdev-task-wide min-w-0">
                         <MarkdownView v-if="currentHtml[task.taskId]" class="nbdev-secondary line-clamp-2" :html="currentHtml[task.taskId]!" inline @navigate="(href) => emit('navigate', href)" />
                         <span v-else class="nbdev-empty">未标</span>
                     </span>
-                    <span role="cell">
+                    <span role="cell" class="nbdev-task-wide">
                         <span v-if="task.updated.value" class="nbdev-secondary">{{ relativeDay(task.updated.value) }}</span>
                         <span v-else class="nbdev-empty">未标</span>
                     </span>
                     <!-- 为 0 的计数淡化：一眼只看到有东西的格子。 -->
-                    <span role="cell" class="nbdev-num text-right" :class="task.artifacts.length + task.documents.length > 0 ? 'nbdev-secondary' : 'nbdev-empty'">{{ task.artifacts.length + task.documents.length }}</span>
-                    <span role="cell" class="text-right">
+                    <span role="cell" class="nbdev-task-wide nbdev-num text-right" :class="task.artifacts.length + task.documents.length > 0 ? 'nbdev-secondary' : 'nbdev-empty'">{{ task.artifacts.length + task.documents.length }}</span>
+                    <span role="cell" class="nbdev-task-wide text-right">
                         <Badge v-if="task.openRequired > 0" tone="warning" variant="soft" size="sm">{{ task.openRequired }}</Badge>
                         <span v-else class="nbdev-empty nbdev-num">0</span>
                     </span>
-                    <span role="cell">
+                    <span role="cell" class="nbdev-task-wide">
                         <span class="nbdev-secondary">{{ task.source === "branch" ? "分支" : "master" }}</span>
                         <span v-if="task.uncommitted" class="nbdev-warn"> · 未提交</span>
                     </span>
-                    <span role="cell" class="flex min-w-0 flex-wrap gap-1">
+                    <span role="cell" class="nbdev-task-wide flex min-w-0 flex-wrap gap-1">
                         <LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="shortSession(lease.sessionKey, lease.label)" :stale="lease.stale" />
                     </span>
                 </div>
@@ -160,5 +160,23 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 1.25rem;
+}
+/* 手机上只留展开按钮、Task 与状态三列，其余在展开里看；展开内容改成一栏，不再横向滚动。 */
+@media (max-width: 767px) {
+    .nbdev-task-grid {
+        min-width: 0;
+    }
+    .nbdev-task-row {
+        grid-template-columns: 2rem minmax(0, 1fr) auto;
+    }
+    .nbdev-task-wide {
+        display: none;
+    }
+    .nbdev-task-detail {
+        padding-left: 0.75rem;
+    }
+    .nbdev-task-detail-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 </style>
