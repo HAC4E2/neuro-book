@@ -13,6 +13,15 @@ export const docHref = (checkoutKey: string, path: string) => `/docs?checkout=${
 export const editHref = (path: string) => `/edit?path=${encodeURIComponent(path)}`;
 export const newHref = (workId: string | null = null) => (workId ? `/new?workId=${encodeURIComponent(workId)}` : "/new");
 
+/**
+ * 页面实例的身份：路由名加路径参数，不含查询参数（t15）。外壳给 `RouterView` 里的页面按它加 key：Work、Task、产物页换了参数就重建，
+ * 上一个页面的提示、重试与在途的回包不会落到新页面上；`?pane=`、`?path=` 这类查询参数由页面自己处理，变了不重建。
+ */
+export function pageKey(route: {name?: string | symbol | null; params: Record<string, string | string[] | undefined>}): string {
+    const params = Object.keys(route.params).sort().map((key) => [key, route.params[key] ?? null]);
+    return `${String(route.name ?? "")}:${JSON.stringify(params)}`;
+}
+
 /** 搜索里记录的匹配去哪一页；会话没有单独的页，去会话列表。 */
 export function searchRecordHref(match: SearchRecordMatch): string {
     if (match.kind === "work" && match.workId) return workHref(match.workId);

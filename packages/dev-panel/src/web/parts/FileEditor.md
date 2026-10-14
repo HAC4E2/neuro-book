@@ -14,7 +14,7 @@ interface FileEditorProps {
     modelValue: string;
     /** 当前文本的预览 HTML（页面经 host/markdown.ts 渲染）；必填 */
     previewHtml: string;
-    /** 只读（不能编辑时）；必填 */
+    /** 只读（不能编辑时；保存在途时宿主也置只读，t15）；必填 */
     readonly: boolean;
     /** 治理检查的非空行上限；不是治理入口时为 null；必填 */
     lineLimit: number | null;

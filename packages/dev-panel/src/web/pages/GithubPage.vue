@@ -9,6 +9,7 @@ import type {GithubData} from "../host/types.js";
 import IssueList from "../parts/IssueList.vue";
 import LoadState from "../parts/LoadState.vue";
 import PrList from "../parts/PrList.vue";
+import StaleNotice from "../parts/StaleNotice.vue";
 
 /**
  * GitHub 只读页（t14，Proposal 待决问题 12）：开着的 PR（检查结果）与 Issue，都链到 GitHub；没有任何写按钮。
@@ -52,6 +53,7 @@ const STATE: Record<GithubData["state"], {label: string; tone: "success" | "warn
             <span v-if="data?.at" style="color: var(--text-muted); font-size: var(--text-xs)">{{ relativeTime(data.at) }}取的</span>
             <Button class="ml-auto" size="sm" variant="secondary" icon-class="i-lucide-refresh-cw" :loading="pending || data?.refreshing === true" @click="refresh">刷新</Button>
         </div>
+        <StaleNotice v-if="github.stale.value" :error="github.error.value!" :received-at="github.receivedAt.value" @retry="github.reload()" />
         <LoadState v-if="!data" :loading="github.loading.value" :error="github.error.value" label="正在读取" @retry="github.reload()" />
         <template v-else>
             <p v-if="data.error" :style="{color: data.state === 'stale' ? 'var(--text-secondary)' : 'var(--status-warning)', fontSize: 'var(--text-xs)'}">{{ data.state === "stale" ? `这次没取到，显示的是 ${relativeTime(data.at!)}的数据：` : "" }}{{ data.error }}</p>

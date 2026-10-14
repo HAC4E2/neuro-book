@@ -1,0 +1,7 @@
+{
+    "extends": "./tsconfig.web.json",
+    "compilerOptions": {
+        "types": ["bun", "vite/client"]
+    },
+    "include": ["tests/web-*.ts"]
+}

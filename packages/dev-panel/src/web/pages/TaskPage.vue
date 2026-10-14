@@ -5,7 +5,7 @@ import {useRouter} from "vue-router";
 import {relativeDay, shortSession, taskLabel, workLabel} from "../host/format.js";
 import {renderMarkdown} from "../host/markdown.js";
 import {useResource} from "../host/panel-data.js";
-import {editHref, isPlainClick} from "../host/routes.js";
+import {editHref, isPlainClick, workHref} from "../host/routes.js";
 import {useStatusChange} from "../host/status-change.js";
 import type {Meta, TaskPageData} from "../host/types.js";
 import StatusSwitch from "../parts/StatusSwitch.vue";
@@ -15,6 +15,7 @@ import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LeaseChip from "../parts/LeaseChip.vue";
 import LoadState from "../parts/LoadState.vue";
 import MarkdownView from "../parts/MarkdownView.vue";
+import StaleNotice from "../parts/StaleNotice.vue";
 import StatusChip from "../parts/StatusChip.vue";
 
 /**
@@ -63,6 +64,7 @@ function evidenceUrl(path: string): string | null {
 
 <template>
     <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-5 p-4 md:p-6">
+        <StaleNotice v-if="page.stale.value" :error="page.error.value!" :received-at="page.receivedAt.value" :up-href="workHref(workId)" up-label="回到 Work" @navigate="(href) => router.push(href)" @retry="page.reload()" />
         <LoadState v-if="!page.data.value" :loading="page.loading.value" :error="page.error.value" label="正在读取 Task" @retry="page.reload()" />
         <template v-else>
             <Breadcrumb :items="[{label: '首页', href: '/'}, {label: workLabel(props.workId), href: `/work/${props.workId}`}, {label: taskLabel(props.taskId), current: true}]" @click="followCrumb" />

@@ -7,6 +7,7 @@ import {useResource} from "../host/panel-data.js";
 import type {Overview, OverviewWork} from "../host/types.js";
 import InboxList from "../parts/InboxList.vue";
 import LoadState from "../parts/LoadState.vue";
+import StaleNotice from "../parts/StaleNotice.vue";
 import WorkCard from "../parts/WorkCard.vue";
 
 /**
@@ -35,6 +36,7 @@ const navigate = (href: string) => void router.push(href);
 
 <template>
     <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-6 p-4 md:p-6">
+        <StaleNotice v-if="overview.stale.value" :error="overview.error.value!" :received-at="overview.receivedAt.value" @retry="overview.reload()" />
         <LoadState v-if="!overview.data.value" :loading="overview.loading.value" :error="overview.error.value" label="正在读取 Work 与收件箱" @retry="overview.reload()" />
         <template v-else>
             <section class="flex flex-col gap-2" aria-labelledby="inbox-title">

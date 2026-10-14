@@ -5,7 +5,7 @@ import {useRouter} from "vue-router";
 import {relativeTime, taskLabel, workLabel} from "../host/format.js";
 import {sendJson} from "../host/api.js";
 import {useResource} from "../host/panel-data.js";
-import {isPlainClick} from "../host/routes.js";
+import {isPlainClick, taskHref} from "../host/routes.js";
 import {useNotifyActions} from "../host/notify-actions.js";
 import type {ArtifactPageData, Meta, NotifyData, WriteData} from "../host/types.js";
 import {failureNotice, successNotice, useWrite, type Notice} from "../host/writes.js";
@@ -15,6 +15,7 @@ import LoadState from "../parts/LoadState.vue";
 import NotifyStatus from "../parts/NotifyStatus.vue";
 import QuestionPanel from "../parts/QuestionPanel.vue";
 import ScreenConfirmDialog from "../parts/ScreenConfirmDialog.vue";
+import StaleNotice from "../parts/StaleNotice.vue";
 import WriteNotice from "../parts/WriteNotice.vue";
 
 /**
@@ -38,6 +39,8 @@ const crumbs = computed(() => [
     ...(props.taskId === "-" ? [] : [{label: taskLabel(props.taskId), href: `/work/${props.workId}/task/${props.taskId}`}]),
     {label: props.artifactId, current: true},
 ]);
+/** 产物找不到（404）时回到哪里：所属 Task，独立产物回到产物列表。 */
+const upHref = computed(() => (props.taskId === "-" ? "/artifacts" : taskHref(props.workId, props.taskId)));
 const meta = useResource<Meta>(() => "/api/meta", ["records"]);
 const write = useWrite();
 const notice = ref<Notice | null>(null);
@@ -106,6 +109,7 @@ function followCrumb(item: {href?: string}, event: MouseEvent): void {
 <template>
     <div class="flex min-h-full w-full flex-col gap-3 p-4 md:p-6">
         <Breadcrumb :items="crumbs" @click="followCrumb" />
+        <StaleNotice v-if="artifact.stale.value" :error="artifact.error.value!" :received-at="artifact.receivedAt.value" :up-href="upHref" up-label="回到上一级" @navigate="(href) => router.push(href)" @retry="artifact.reload()" />
         <LoadState v-if="!data" :loading="artifact.loading.value" :error="artifact.error.value" label="正在读取产物" @retry="artifact.reload()" />
         <template v-else>
             <header class="flex flex-wrap items-center gap-2">

@@ -2,8 +2,7 @@
 import {Spinner} from "@notnotype/nb-ui/components";
 import {onBeforeUnmount, ref, shallowRef, watch} from "vue";
 import {useRoute, useRouter} from "vue-router";
-import {ApiError, streamLines} from "../host/api.js";
-import {panelState} from "../host/panel-data.js";
+import {streamLines} from "../host/api.js";
 import type {SearchCheckoutDone, SearchHit, SearchRecordMatch} from "../host/types.js";
 import LoadState from "../parts/LoadState.vue";
 import SearchResults from "../parts/SearchResults.vue";
@@ -55,7 +54,6 @@ async function run(q: string): Promise<void> {
         if (controller === local) finished.value = true;
     } catch (caught) {
         if (caught instanceof DOMException && caught.name === "AbortError") return;
-        if (caught instanceof ApiError && caught.status === 401) panelState.unauthorized = true;
         error.value = {message: caught instanceof Error ? caught.message : String(caught)};
     } finally {
         clearInterval(frame);

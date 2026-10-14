@@ -112,17 +112,19 @@ export function useTerminalSocket(target: {paneId: string; terminalId: string}) 
         try {
             await getJson<unknown>("/api/meta");
         } catch (caught) {
-            if (caught instanceof ApiError && caught.status === 401) {
-                panelState.unauthorized = true;
-                return false;
-            }
-            console.warn("重连终端前探测面板失败，照常重连", caught);
+            // 回 401 时登录失效的出口已经处理（见 `api.ts` 的 `onAuthLost`）；重新登录后会话页按新的 `authEpoch` 重建连接。
+            if (!(caught instanceof ApiError && caught.status === 401)) console.warn("重连终端前探测面板失败，照常重连", caught);
         }
-        return true;
+        return !panelState.unauthorized;
     }
 
     function connect(): void {
-        if (disposed || document.visibilityState === "hidden") return;
+        if (disposed) return;
+        // 在后台建起（或重连时恰在后台）：记为暂停，回到前台由 onVisibility 的 paused 分支连上（t15）。
+        if (document.visibilityState === "hidden") {
+            state.status = "paused";
+            return;
+        }
         state.status = "connecting";
         state.closedReason = null;
         framed = false;
@@ -149,6 +151,7 @@ export function useTerminalSocket(target: {paneId: string; terminalId: string}) 
             const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * 2 ** Math.min(attempts - 1, 4));
             reconnect = setTimeout(() => {
                 reconnect = null;
+                if (panelState.unauthorized) return;
                 void probe().then((go) => {
                     if (go) connect();
                 });

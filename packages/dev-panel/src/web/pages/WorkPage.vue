@@ -14,6 +14,7 @@ import BranchNote from "../parts/BranchNote.vue";
 import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LeaseChip from "../parts/LeaseChip.vue";
 import LoadState from "../parts/LoadState.vue";
+import StaleNotice from "../parts/StaleNotice.vue";
 import StatusBar from "../parts/StatusBar.vue";
 import StatusChip from "../parts/StatusChip.vue";
 import TaskTable from "../parts/TaskTable.vue";
@@ -43,6 +44,7 @@ function followCrumb(item: {href?: string}, event: MouseEvent): void {
 
 <template>
     <div class="mx-auto flex w-full max-w-[90rem] flex-col gap-5 p-4 md:p-6">
+        <StaleNotice v-if="work.stale.value" :error="work.error.value!" :received-at="work.receivedAt.value" up-href="/" up-label="回到首页" @navigate="(href) => router.push(href)" @retry="work.reload()" />
         <LoadState v-if="!work.data.value" :loading="work.loading.value" :error="work.error.value" label="正在读取 Work" @retry="work.reload()" />
         <template v-else>
             <Breadcrumb :items="[{label: '首页', href: '/'}, {label: workLabel(work.data.value.workId), current: true}]" @click="followCrumb" />

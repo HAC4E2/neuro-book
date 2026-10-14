@@ -5,6 +5,7 @@ import {relativeTime, taskLabel, workLabel} from "../host/format.js";
 import {useResource} from "../host/panel-data.js";
 import type {CheckoutRow, CheckoutsData} from "../host/types.js";
 import LoadState from "../parts/LoadState.vue";
+import StaleNotice from "../parts/StaleNotice.vue";
 
 /**
  * checkout 页（Proposal 第九节）：路径、分支、HEAD、是哪个 Work 的执行 worktree；t14 加未提交条数（只算已跟踪的文件）、
@@ -43,6 +44,7 @@ const columns: Array<{key: keyof Row & string; label: string; width?: string}> =
             <h1 class="font-semibold" style="font-size: var(--text-xl)">checkout</h1>
             <span v-if="computedAgo" style="color: var(--text-muted); font-size: var(--text-xs)">未提交与领先落后是 {{ computedAgo }}算的</span>
         </div>
+        <StaleNotice v-if="checkouts.stale.value" :error="checkouts.error.value!" :received-at="checkouts.receivedAt.value" @retry="checkouts.reload()" />
         <LoadState v-if="!checkouts.data.value" :loading="checkouts.loading.value" :error="checkouts.error.value" label="正在读取 checkout" @retry="checkouts.reload()" />
         <!-- 列多：窄屏上整张表横向滚动，不把每列挤成一字一行。 -->
         <div v-else class="overflow-x-auto">
