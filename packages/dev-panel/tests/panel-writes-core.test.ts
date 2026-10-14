@@ -105,6 +105,8 @@ describe("编辑白名单", () => {
         await fixture.write("random/x.md", "# 不在文档树上\n");
         await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/notes.md", "# 笔记\n");
         await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/evidences/e.md", "# 证据\n");
+        await fixture.write(".agents/works/README.md", "# Work 与 Task\n");
+        await fixture.write(".agents/works/notes.md", "# 不在文档树上\n");
         await fixture.commit("docs");
         await mkdir(join(fixture.main, ".local/agent"), {recursive: true});
         await writeFile(join(fixture.main, ".local/agent/notes.md"), "# 本机\n");
@@ -127,6 +129,9 @@ describe("编辑白名单", () => {
         expect(await readEditableFile(context, "docs/specs/link.md")).toBeNull();
         expect(await readEditableFile(context, "random/x.md")).toBeNull();
         expect((await readEditableFile(context, "docs/specs/a.md"))?.kind).toBe("repo_doc");
+        // .agents/works 根上的 README 在文档树上，按文档编辑；同一层别的文件仍拒。
+        expect((await readEditableFile(context, ".agents/works/README.md"))?.kind).toBe("repo_doc");
+        expect((await attempt(".agents/works/notes.md")).details.reason).toBe("not_listed");
         expect((await readEditableFile(context, ".agents/works/w00001-seed/tasks/t01-seed/notes.md"))?.kind).toBe("record_document");
         expect((await readEditableFile(context, TASK_README))?.kind).toBe("task_readme");
     });

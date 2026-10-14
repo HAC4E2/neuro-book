@@ -93,7 +93,9 @@ export async function classifyEditable(scope: RecordScope, path: string): Promis
         if (!listed.some((document) => document.path === path)) throw notEditable(path, "not_listed", "不在 Work 的文档类产物里");
         return {path, kind: "record_document", workId, taskId: null};
     }
-    if (path.startsWith(`${WORKS_ROOT}/`)) throw notEditable(path, "not_listed", "记录目录里只能编辑 README 与第一层的文档类产物");
+    // `.agents/works` 根上的 README、AGENTS 不是记录，是文档树上的约定文件（t15 阶段 4）：按文档树的规则判，不按记录目录拒。
+    const worksRootDoc = path === `${WORKS_ROOT}/README.md` || path === `${WORKS_ROOT}/AGENTS.md`;
+    if (path.startsWith(`${WORKS_ROOT}/`) && !worksRootDoc) throw notEditable(path, "not_listed", "记录目录里只能编辑 README 与第一层的文档类产物");
     if (!(await listDocPaths(mainRoot)).includes(path)) throw notEditable(path, "not_listed", "不在主工作区的文档树上");
     return {path, kind: "repo_doc", workId: null, taskId: null};
 }
