@@ -11,7 +11,7 @@ const rows = computed(() => Array.from({length: props.scene === "short" ? 5 : 80
 </script>
 
 <template>
-    <div class="relative h-full w-full max-w-[420px] overflow-hidden rounded-[var(--radius-panel)] bg-[var(--bg-panel)]">
+    <div class="relative h-[360px] max-h-full w-full max-w-[420px] overflow-hidden rounded-[var(--radius-panel)] bg-[var(--bg-panel)]">
         <ul ref="scroller" class="h-full overflow-y-auto py-1 text-sm text-[var(--text-main)]">
             <li v-for="row in rows" :key="row" class="mx-1.5 truncate rounded-[var(--radius-control)] px-2 py-1 hover:bg-[var(--bg-hover)]">{{ row }}</li>
         </ul>
