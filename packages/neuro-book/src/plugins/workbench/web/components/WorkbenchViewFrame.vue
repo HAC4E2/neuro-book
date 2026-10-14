@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /** 视图实例的可见形态（同名 .md）：交付状态、加载、两种失败与错误边界；加载与代际由宿主决定。 */
-import {computed, defineComponent, h, onErrorCaptured} from "vue";
+import {computed, defineComponent, h, onErrorCaptured, ref} from "vue";
 import type {Component, PropType} from "vue";
 
-import {Button, ScrollArea, Spinner} from "@notnotype/nb-ui/components";
+import {Button, OverlayScrollbar, Spinner} from "@notnotype/nb-ui/components";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
@@ -69,18 +69,25 @@ const ErrorBoundary = defineComponent({
 function reportRenderError(generation: number, message: string): void {
     emit("render-error", generation, message);
 }
+
+/** `scroll` 布局的滚动元素：交给叠加滚动条。 */
+const scroller = ref<HTMLElement | null>(null);
 </script>
 
 <template>
     <div class="workbench-view-frame" :data-view-frame="viewId" :data-view-state="state" :data-view-generation="generation" :data-view-layout="layout">
         <template v-if="state === 'ready' && component !== null && context !== null">
-            <ScrollArea v-if="layout === 'scroll'" class="workbench-view-frame__scroll">
-                <div class="workbench-view-frame__padding">
-                    <ErrorBoundary :key="generation" :generation="generation" :on-failed="reportRenderError">
-                        <component :is="component" :context="context" />
-                    </ErrorBoundary>
+            <!-- 滚动条叠在内容上、鼠标进来才显示（docs/specs/workbench/views.md 输出 12）。 -->
+            <div v-if="layout === 'scroll'" class="workbench-view-frame__scroll-host">
+                <div ref="scroller" class="workbench-view-frame__scroll" data-view-scroller>
+                    <div class="workbench-view-frame__padding">
+                        <ErrorBoundary :key="generation" :generation="generation" :on-failed="reportRenderError">
+                            <component :is="component" :context="context" />
+                        </ErrorBoundary>
+                    </div>
                 </div>
-            </ScrollArea>
+                <OverlayScrollbar :target="scroller" />
+            </div>
             <ErrorBoundary v-else :key="generation" :generation="generation" :on-failed="reportRenderError">
                 <component :is="component" :context="context" />
             </ErrorBoundary>
@@ -127,9 +134,17 @@ function reportRenderError(generation: number, message: string): void {
     overflow: hidden;
 }
 
+.workbench-view-frame__scroll-host {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
 .workbench-view-frame__scroll {
     width: 100%;
     height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .workbench-view-frame__padding {

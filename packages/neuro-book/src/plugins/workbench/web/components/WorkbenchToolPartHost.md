@@ -8,7 +8,7 @@
 
 一个工具区域（Sidebar、AuxiliaryBar 或 Panel）里的框：选中容器的挂载落点，加上这个区域自己的标题行（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 15–17、25）。容器宿主不由它创建：落点元素经 `target` 报给宿主，宿主把选中容器的宿主搬进去。三个区域的标题行不同：
 
-- Sidebar：容器切换在 ActivityBar 上，这里只在 single 时画 32px 容器标题行（标题加上提的动作）；multiple 不画，每个视图有自己的标题。
+- Sidebar：容器切换在 ActivityBar 上，这里只在 single 时画 32px 容器标题行（标题加上提的动作）；multiple 不画，每个视图有自己的标题。上提的动作只在指针位于整个 ToolPart 上、焦点在里面或动作的菜单开着时显示，其余时候透明：根是显示范围（`data-hover-actions-scope`），动作区带 `data-hover-actions`（`hover-actions.css`，[`docs/specs/workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 10）。
 - AuxiliaryBar：32px 标题行是容器标签带（nb-ui `Tabs`，只有一个容器也保留；没有容器时标签带空着但仍占位，是拖到 Switcher 的落点），右侧是 single 时上提的动作。
 - Panel：没有自己的标题行——面板框架 `WorkbenchPanelSurface` 是 Panel 32px 标题行唯一的拥有者，标签带由宿主放进它的导航槽；这里只有落点。
 

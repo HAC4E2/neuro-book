@@ -1,10 +1,11 @@
 /** nb-ui 布局类（`layout/`）的场景。`GridRenderer` 的布局由宿主算出，在 `WorkbenchShellLayout` 的集成场景里观察。 */
 
-import type {Accordion, AspectRatio, Collapsible, CollapsibleSection, DropFeedbackOverlay, DropIndicator, DropIndicatorLabel, Panel, ScrollArea, Separator, Splitter} from "@notnotype/nb-ui/components";
+import type {Accordion, AspectRatio, Collapsible, CollapsibleSection, DropFeedbackOverlay, DropIndicator, DropIndicatorLabel, OverlayScrollbar, Panel, ScrollArea, Separator, Splitter} from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
 
+import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 import {nbUiSubject} from "./shared";
@@ -101,6 +102,14 @@ export const layoutFixtures: LabFixture[] = [
             {id: "flush", label: "无内边距", input: {props: {tone: "default", padding: "none"}, slots: {default: true}}},
         ],
         subject: nbUiSubject("Panel"),
+    }),
+    defineLabFixture<typeof OverlayScrollbar>({
+        component: "OverlayScrollbar",
+        scenes: [
+            {id: "long", label: "内容溢出：鼠标移入时出现", input: {props: {target: null}}},
+            {id: "short", label: "内容不溢出：不画", input: {props: {target: null}}},
+        ],
+        load: async () => (await import("./OverlayScrollbarFixture.vue")).default,
     }),
     defineSubjectFixture<typeof ScrollArea>({
         component: "ScrollArea",

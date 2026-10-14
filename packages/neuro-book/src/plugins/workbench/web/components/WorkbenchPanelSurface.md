@@ -46,7 +46,7 @@ type Emits = {
 };
 
 type Slots = {
-    /** 标题行左侧的导航（产品里是容器标签带与上提的动作）；不给或什么都没渲染时显示 `title`。标题仍是区域的可访问名称。 */
+    /** 标题行左侧的导航（产品里是容器标签带与上提的动作）；不给或什么都没渲染时显示 `title`。标题仍是区域的可访问名称。根是上提动作的显示范围（`data-hover-actions-scope`）：插槽里带 `data-hover-actions` 的动作区只在指针位于面板上、焦点在里面或菜单开着时显示（hover-actions.css，views.md 输出 10）。 */
     nav?(): unknown;
     /** 内容区；收起时不渲染（保留在 DOM 里但隐藏，不卸载）。 */
     default?(): unknown;

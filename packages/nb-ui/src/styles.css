@@ -15,6 +15,16 @@ html {
     scrollbar-gutter: stable both-edges;
 }
 
+/* 交给 OverlayScrollbar 画滚动条的滚动元素：原生滚动条不画、不占宽度；自成层叠上下文，内容的层级盖不过叠在上面的滑块。 */
+.nb-ui-scrollbar-none {
+    scrollbar-width: none;
+    isolation: isolate;
+}
+
+.nb-ui-scrollbar-none::-webkit-scrollbar {
+    display: none;
+}
+
 .nb-ui-colorway {
     color-scheme: var(--color-scheme, light dark);
 }

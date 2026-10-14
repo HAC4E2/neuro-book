@@ -5,7 +5,7 @@
 
 # WorkbenchActivityBar
 
-主体左侧的通高列，画面板底色、自己不画外框与圆角（卡片外壳里外壳给它套卡片、与侧栏相连，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38）：上段是 Sidebar 的 Switcher，一个容器一个图标按钮；底段是插件经贡献点 `workbench.activitybar-items` 交来的全局项（输出 40：现在是头像占位与设置齿轮）。它只画按钮、选中标记与按下态，点了只发 `select` 或 `run-item`；切换哪个容器、要不要同时打开被隐藏或拖到零的 Sidebar、执行哪条命令，由宿主决定（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 15）。
+主体左侧的通高列，画面板底色、自己不画外框与圆角（卡片外壳里外壳给它套卡片、与侧栏相连，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38）：上段是 Sidebar 的 Switcher，一个容器一个图标按钮；底段是插件经贡献点 `workbench.activitybar-items` 交来的全局项（输出 40：现在是头像占位与设置齿轮）。它只画按钮、选中标记与按下态，点了只发 `select` 或 `run-item`；切换哪个容器、要不要收起或打开 Sidebar、执行哪条命令，由宿主决定（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳二输出 15）。
 
 ## 布局
 
@@ -18,7 +18,7 @@
 
 ## 交互
 
-- 点任何一个按钮都发 `select(id)`，包括已选中的那个（宿主据此打开被隐藏或拖到零的 Sidebar）。
+- 点任何一个按钮都发 `select(id)`，包括已选中的那个（宿主据此收起看得见的 Sidebar、打开被隐藏或拖到零的 Sidebar）。
 - 每个按钮也是整容器的拖动源，上段是 Sidebar 的 Switcher 条目带（外壳三输出 19–23）：组件只写标记，拖动由外壳的拖放会话处理。按住移动或聚焦后按空格拿起；按钮带 `aria-description`（`dragHint`）说明这一点。
 - 每个按钮是普通按钮，各自是一个 Tab 停靠点；`aria-pressed` 表示它是 Sidebar 当前显示的容器；悬停提示与可访问名称是容器标题。
 - 底段有命令的条目点了发 `run-item(id)`；命令不可用时按钮停用，悬停提示是原因（原生 `title`：停用的按钮不触发悬停提示组件）。声明了切换状态的条目带 `aria-pressed`。

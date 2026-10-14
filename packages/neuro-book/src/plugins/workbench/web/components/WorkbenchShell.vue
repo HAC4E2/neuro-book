@@ -204,8 +204,15 @@ const shownParts = computed<ViewLocation[]>(() => {
 
 const activityContainers = computed(() => presentation.value.parts.sidebar.switcher.map((item) => ({id: item.containerId, label: text(item.title), icon: item.icon})));
 
-/** ActivityBar：切到这个容器；Sidebar 看不见时同时打开它（被隐藏的显示、拖到零的按记忆尺寸展开）。 */
+/**
+ * ActivityBar（Spec 外壳二输出 15）：点当前项且 Sidebar 看得见时收起它（隐藏）；否则切到这个容器，Sidebar 看不见时同时打开它
+ * （被隐藏的显示、拖到零的按记忆尺寸展开）。
+ */
 function selectSidebarContainer(containerId: string): void {
+    if (sidebarVisible.value && presentation.value.parts.sidebar.selected === containerId) {
+        props.layout.actions.setPartHidden("sidebar", true);
+        return;
+    }
     props.layout.actions.applyView({kind: "select-container", part: "sidebar", containerId});
     props.layout.actions.setPartHidden("sidebar", false);
 }
@@ -505,7 +512,7 @@ const dropFeedback = computed(() => {
                         标签带里的工具区：不起拖、不接收投递（外壳三输出 19 行为表最后一行）。条件写在包装上：槽里什么都没渲染时
                         面板要回落显示标题，常驻的空包装会挡掉回落。
                     -->
-                    <span v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && (moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null || hasViewActions(singleViewOf(selectedOf('panel')!)!))" class="workbench-shell__panel-tools" data-no-drag>
+                    <span v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && (moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null || hasViewActions(singleViewOf(selectedOf('panel')!)!))" class="workbench-shell__panel-tools" data-no-drag data-hover-actions>
                         <TitleActions v-if="hasViewActions(singleViewOf(selectedOf('panel')!)!)" :model="viewActionsOf(singleViewOf(selectedOf('panel')!)!)" :identity="viewActionsIdentity(singleViewOf(selectedOf('panel')!)!)" :more-label="text(TEXT.moreActions)" @run="(key) => runViewAction(singleViewOf(selectedOf('panel')!)!, key)" />
                         <WorkbenchMoveViewMenu
                             v-if="moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null"

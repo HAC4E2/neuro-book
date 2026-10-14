@@ -9,6 +9,7 @@ import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import type {ContainerPresentation, PartPresentation} from "../views/presentation";
 import {switcherPanelId, switcherTabId} from "./switcher-ids";
+import "./hover-actions.css";
 
 /**
  * 标签带放不下时逐级让位（docs/specs/ui/workbench-shell.md 输出 25）：截断到 96px 时每个标签还读得出图标加四五个字，
@@ -65,12 +66,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <section class="workbench-tool-part" :class="`workbench-tool-part--${part}`" :aria-label="label" :data-tool-part="part">
+    <section class="workbench-tool-part" :class="`workbench-tool-part--${part}`" :aria-label="label" :data-tool-part="part" data-hover-actions-scope>
         <header v-if="showTitleRow && selected !== null" class="workbench-tool-part__head workbench-tool-part__head--drag" :data-drag-container="selected.id">
             <span class="workbench-tool-part__icon" :class="selected.icon" aria-hidden="true"></span>
             <!-- 标题文字是键盘拖动的把手；指针拖动用整个标题行。 -->
             <h2 class="workbench-tool-part__title"><span class="nb-ui-focus-ring workbench-tool-part__handle" role="button" tabindex="0" :aria-label="dragLabel.replace('{title}', localize(selected.title, locale))" data-drag-handle>{{ localize(selected.title, locale) }}</span></h2>
-            <div class="workbench-tool-part__actions" data-no-drag>
+            <div class="workbench-tool-part__actions" data-no-drag data-hover-actions>
                 <slot name="actions" :container="selected"></slot>
             </div>
         </header>
@@ -91,7 +92,7 @@ onBeforeUnmount(() => {
                     @update:model-value="(value: string) => emit('select', value)"
                 />
             </div>
-            <div v-if="selected !== null && selected.mode === 'single'" class="workbench-tool-part__actions" data-no-drag>
+            <div v-if="selected !== null && selected.mode === 'single'" class="workbench-tool-part__actions" data-no-drag data-hover-actions>
                 <slot name="actions" :container="selected"></slot>
             </div>
         </header>

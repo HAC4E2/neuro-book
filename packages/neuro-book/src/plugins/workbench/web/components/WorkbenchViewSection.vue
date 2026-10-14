@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 视图外框（同名 .md）：multiple 的标题行与收起；内容由宿主搬进默认插槽，不在这里创建，滚动也归内容。 */
 import {IconButton} from "@notnotype/nb-ui/components";
+import "./hover-actions.css";
 
 defineOptions({name: "WorkbenchViewSection"});
 
@@ -50,6 +51,7 @@ defineSlots<{
 <template>
     <section
         class="workbench-view-section"
+        data-hover-actions-scope
         :class="[`workbench-view-section--${axis}`, {'workbench-view-section--collapsed': chrome && collapsed}]"
         role="region"
         :aria-label="title"
@@ -70,7 +72,7 @@ defineSlots<{
             <span class="workbench-view-section__icon" :class="icon" aria-hidden="true"></span>
             <!-- 标题文字是键盘拖动的把手：聚焦后按空格拿起（外壳三输出 23）；指针拖动用整个标题行。 -->
             <h3 class="workbench-view-section__title"><span class="nb-ui-focus-ring workbench-view-section__handle" role="button" tabindex="0" :aria-label="dragLabel" data-drag-handle>{{ title }}</span></h3>
-            <div v-if="!collapsed" class="workbench-view-section__actions" data-no-drag>
+            <div v-if="!collapsed" class="workbench-view-section__actions" data-no-drag data-hover-actions>
                 <slot name="actions"></slot>
             </div>
         </header>

@@ -148,6 +148,82 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(sample(page, E)).toBeVisible();
     });
 
+    test("侧栏拖到零与从零拉出：松手前活动栏就随之独立或与侧栏相连（外壳一输出 8、38）", async ({page}) => {
+        await open(page);
+        const activitybar = page.locator("[data-shell-card=\"activitybar\"]");
+        await expect(activitybar).toHaveAttribute("data-shell-join", "start");
+        const sash = page.getByRole("separator", {name: "调整 sidebar 与 panel-stack 的宽度"});
+        const found = await sash.boundingBox();
+        if (found === null) throw new Error("没有侧栏的边界");
+        const y = found.y + found.height / 2;
+        await page.mouse.move(found.x + found.width / 2, y);
+        await page.mouse.down();
+        await page.mouse.move(0, y, {steps: 8});
+        await expect(activitybar).not.toHaveAttribute("data-shell-join");
+        await page.mouse.up();
+        await expect(activitybar).not.toHaveAttribute("data-shell-join");
+        const zero = await sash.boundingBox();
+        if (zero === null) throw new Error("侧栏拖到零后没有边界");
+        await page.mouse.move(zero.x + zero.width / 2, y);
+        await page.mouse.down();
+        await page.mouse.move(zero.x + 260, y, {steps: 10});
+        await expect(sample(page, A)).toBeVisible();
+        await expect(activitybar).toHaveAttribute("data-shell-join", "start");
+        await expect(page.locator("[data-shell-card=\"sidebar\"]")).toHaveAttribute("data-shell-join", "end");
+        await page.mouse.up();
+        await expect(activitybar).toHaveAttribute("data-shell-join", "start");
+    });
+
+    test("标题动作与滚动条随鼠标显示：鼠标在外时动作透明、没有滑块、内容不让宽；移入、Tab 进入或菜单开着时动作可见；拖滑块按比例滚动（验收 9）", async ({page}) => {
+        await open(page);
+        await page.locator(`[data-activity-container="view:${B}"]`).click();
+        const frame = page.locator(`[data-view-frame="${B}"]`);
+        const scroller = frame.locator("[data-view-scroller]");
+        const bar = frame.locator("[data-overlay-scrollbar]");
+        const actions = page.locator('[data-tool-part="sidebar"] [data-hover-actions]');
+        await expect(scroller).toBeVisible();
+
+        // 鼠标在侧栏之外、焦点不在侧栏里。
+        await page.mouse.move(1000, 400);
+        await page.locator("body").evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await expect(actions).toHaveCSS("opacity", "0");
+        await expect(bar).not.toHaveAttribute("data-shown");
+        expect(await scroller.evaluate((element: HTMLElement) => element.offsetWidth - element.clientWidth)).toBe(0);
+        expect(await scroller.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+
+        await frame.hover();
+        await expect(actions).toHaveCSS("opacity", "1");
+        await expect(bar).toHaveAttribute("data-shown", "");
+
+        // 鼠标移开，焦点 Tab 到动作上：仍可见。
+        await page.mouse.move(1000, 400);
+        await actions.locator(`[data-move-view="${B}"]`).focus();
+        await expect(actions).toHaveCSS("opacity", "1");
+        // “移动到”的菜单开着、鼠标在菜单上：不消失。
+        await actions.locator(`[data-move-view="${B}"]`).click();
+        const menu = page.getByRole("menu");
+        await expect(menu).toBeVisible();
+        await menu.getByRole("menuitem").first().hover();
+        await expect(actions).toHaveCSS("opacity", "1");
+        await page.keyboard.press("Escape");
+        await expect(menu).toHaveCount(0);
+
+        // 拖滑块：滑块走了多少比例，内容就滚多少比例。
+        await frame.hover();
+        const thumb = bar.locator("[data-overlay-scrollbar-thumb]");
+        const box = await thumb.boundingBox();
+        if (box === null) throw new Error("没有滑块");
+        expect(await scroller.evaluate((element) => element.scrollTop)).toBe(0);
+        await page.mouse.move(box.x + box.width / 2, box.y + 4);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2, box.y + 4 + 30, {steps: 4});
+        await page.mouse.up();
+        const moved = await scroller.evaluate((element) => ({scrollTop: element.scrollTop, range: element.scrollHeight - element.clientHeight, travel: element.clientHeight}));
+        const track = await bar.evaluate((element) => element.getBoundingClientRect().height);
+        const expected = (30 / (track - box.height)) * moved.range;
+        expect(Math.abs(moved.scrollTop - expected)).toBeLessThanOrEqual(2);
+    });
+
     test("全链路：视图按声明出现在默认位置，第一次有效可见才加载，代际为 1", async ({page}) => {
         await open(page);
         await expect(sample(page, A)).toBeVisible();
@@ -189,7 +265,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect(await area.getAttribute("data-instance")).toBe(instance);
     });
 
-    test("活动栏：选择互斥；Sidebar 被隐藏或拖到零时点容器同时打开它，拖到零的按记忆尺寸展开", async ({page}) => {
+    test("活动栏：选择互斥；再点当前项收起、再点又打开；Sidebar 被隐藏或拖到零时点容器同时打开它，拖到零的按记忆尺寸展开", async ({page}) => {
         await open(page);
         const item = (viewId: string) => page.locator(`[data-activity-container="view:${viewId}"]`);
         await expect(item(A)).toHaveAttribute("aria-pressed", "true");
@@ -218,6 +294,15 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.locator('[data-tool-part="sidebar"]')).toBeHidden();
         await item(C).click();
         await expect(sample(page, C)).toBeVisible();
+        await expect.poll(async () => Math.round((await page.locator('[data-leaf="sidebar"]').boundingBox())!.width)).toBe(Math.round(width));
+
+        // 再点当前项：收起；再点：以同一个容器、同样的宽度打开。
+        await item(C).click();
+        await expect(page.locator('[data-tool-part="sidebar"]')).toBeHidden();
+        await expect(item(C)).toHaveAttribute("aria-pressed", "false");
+        await item(C).click();
+        await expect(sample(page, C)).toBeVisible();
+        await expect(item(C)).toHaveAttribute("aria-pressed", "true");
         await expect.poll(async () => Math.round((await page.locator('[data-leaf="sidebar"]').boundingBox())!.width)).toBe(Math.round(width));
     });
 
@@ -350,7 +435,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         });
         const alpha = await instanceOf(page, A);
         // scroll 布局的视图由视图框负责滚动：滚动盒随实例一起搬动。
-        const scrollerOf = (viewId: string) => page.locator(`[data-view-frame="${viewId}"] [data-reka-scroll-area-viewport]`);
+        const scrollerOf = (viewId: string) => page.locator(`[data-view-frame="${viewId}"] [data-view-scroller]`);
         await page.locator(`[data-activity-container="view:${B}"]`).click();
         await scrollerOf(B).evaluate((element) => {
             element.scrollTop = 200;
