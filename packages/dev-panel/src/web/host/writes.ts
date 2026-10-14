@@ -108,16 +108,25 @@ export function fieldProblems(failure: WriteFailure): Array<{field: string; mess
     return found;
 }
 
+type ListedProblem = {reason?: unknown; message?: unknown; questionId?: unknown; field?: unknown};
+/** 问题锚在哪里：新建页、编辑页的表单按字段（`field`），产物页的答复表单按题号（`questionId`）。 */
+const anchorOf = (problem: ListedProblem): string | null => (typeof problem.field === "string" ? problem.field : typeof problem.questionId === "string" ? problem.questionId : null);
+
 /**
- * 失败的结果。`anchored` 是这一页的表单能显示的字段：落在其中的问题只在字段旁边报一次，结果里写“表单里标出了 N 处”。
+ * 失败的结果。`anchored` 是这一页的表单能显示问题的字段或题号：落在其中的问题只在表单里报一次，结果里写“表单里标出了 N 处”。
  * 其余问题进 `items`，与 `message` 相同的不再列；已写入未提交的路径若 `message` 里已经写了，也不再列。
  */
 export function failureNotice(title: string, failure: WriteFailure, anchored: ReadonlySet<string> = new Set()): Notice {
-    const listed = Array.isArray(failure.details.problems) ? (failure.details.problems as Array<{reason?: unknown; message?: unknown; questionId?: unknown; field?: unknown}>) : [];
-    const anchoredCount = fieldProblems(failure).filter((problem) => anchored.has(problem.field)).length;
+    const listed = Array.isArray(failure.details.problems) ? (failure.details.problems as ListedProblem[]) : [];
+    const isAnchored = (problem: ListedProblem) => {
+        const anchor = anchorOf(problem);
+        return anchor !== null && anchored.has(anchor);
+    };
+    const single = typeof failure.details.field === "string" ? failure.details.field : typeof failure.details.questionId === "string" ? failure.details.questionId : null;
+    const anchoredCount = listed.filter(isAnchored).length + (single !== null && anchored.has(single) && !listed.some((problem) => anchorOf(problem) === single) ? 1 : 0);
     const items: string[] = [];
     for (const problem of listed) {
-        if (typeof problem.field === "string" && anchored.has(problem.field)) continue;
+        if (isAnchored(problem)) continue;
         const reason = String(problem.reason ?? problem.message ?? "");
         if (reason === "" || reason === failure.message) continue;
         const where = typeof problem.questionId === "string" ? problem.questionId : typeof problem.field === "string" ? problem.field : null;

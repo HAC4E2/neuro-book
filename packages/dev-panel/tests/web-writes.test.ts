@@ -40,4 +40,12 @@ describe("失败的结果", () => {
         const notice = failureNotice("没有新建", raw, new Set(["slug", "goal"]));
         expect([notice.message, notice.items]).toEqual(["表单里标出了 2 处要改的地方", ["preview：预览失败"]]);
     });
+
+    test("产物页：答复被拒的原因按题号锚到题目下面，不在结果里再拼一遍、再列一遍；表单里没有的题仍进明细", () => {
+        const raw = failure(400, "invalid_answer", "q1：要选一项；q2：超出范围；q9：题已撤回", {problems: [{questionId: "q1", reason: "要选一项"}, {questionId: "q2", reason: "超出范围"}, {questionId: "q9", reason: "题已撤回"}]});
+        const notice = failureNotice("答复没有提交", raw, new Set(["q1", "q2"]));
+        expect([notice.message, notice.items]).toEqual(["表单里标出了 2 处要改的地方", ["q9：题已撤回"]]);
+        const single = failureNotice("答复没有提交", failure(400, "invalid_answer", "要选一项", {questionId: "q1"}), new Set(["q1"]));
+        expect([single.message, single.items]).toEqual(["表单里标出了 1 处要改的地方", []]);
+    });
 });
