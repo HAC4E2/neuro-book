@@ -1,0 +1,111 @@
+# t15 阶段 4 第 2 批实现审查
+
+- 对象：`4bd1aa473..984a289b8`（10 个提交，`packages/dev-panel/`），审查 worktree `.worktree/w00022-t15-review5`。
+- 依据：`plan.md` 阶段 4 第 2 批与实施进度、决定点 9、14、17；`docs/panel.md`“前端”；各零件同名 `.md`；验收证据 `accept/phase4/batch2/`。
+- 方式：只读。按顺序读 diff 与相关未改代码，看了关键截图；单元测试在集成分支 worktree 上只跑单个文件。
+- 级别：阻断、重要、建议。每条写“实测”或“从代码推断”。
+
+## 发现
+
+### 1. 重要：Work 页 Task 表的“待答”列永远是 0，和同一行展开后的“待答 3”矛盾
+
+- 位置：`packages/dev-panel/src/web/parts/TaskTable.vue:69-72`；数据来源 `packages/dev-panel/src/server/views.ts:116`（`workView` 的 `tasks` 只加了 `checkoutKey`）；类型 `packages/dev-panel/src/web/host/types.ts:51`（`TaskView = OverviewTask & …` 声称有 `openRequired: number`）。
+- 场景：`/api/work/:id` 的 `tasks[]` 是核心的 `TaskView`，没有 `openRequired`（只有 `/api/overview` 在 `views.ts:73` 为每个 Task 算了这个数）。`task.openRequired` 是 `undefined`，`undefined > 0` 为假，表格总画淡色的“0”。这一批把为 0 的计数淡化，正好把错的 0 画成“没有事”。
+- 证据：实测（截图 `accept/phase4/batch2/final/work-expanded-1440.png`）：t15 行的“待答”列是淡色 0，同一行展开后产物“资源管理器打磨……”带“待答 3”，首页收件箱也有 t15 的“必答 3”。问题在第 1 批之前就有（旧表格同样读 `row.task.openRequired`），这一批的验收没有覆盖“待答”列的取值。
+- 改法：二选一，并让类型说真话。(a) 服务端 `workView` 的 `tasks` 映射里补 `openRequired: task.artifacts.reduce((sum, artifact) => sum + artifact.openRequired, 0)`（与 `overviewView` 同一口径，最好抽成一个函数两处共用）；(b) 前端在 `TaskTable` 里按 `task.artifacts` 求和，并把 `types.ts` 的 `TaskView` 从 `OverviewTask` 里去掉 `openRequired`、`artifactCount`、`leaseCount`（work 接口都不给）。补一条验收：有待答题的 Task 在 Work 页表格里显示正确的数。
+
+### 2. 重要：“改状态”按钮一按焦点就丢到 body，取消与写入成功后也一样
+
+- 位置：`packages/dev-panel/src/web/parts/StatusSwitch.vue:43`（`v-else-if="!editing"` 的按钮）、`:53`（“取消”）、`:27-30`（状态变了收起）。
+- 场景：键盘在“改状态”上按 Enter：`editing` 变真，这个按钮被 `v-if` 换掉，焦点所在的元素离开 DOM，落到 `body`；要再从页头 Tab 一遍才能到下拉。点“取消”时“取消”按钮被换掉，同样落到 `body`。确认写入成功后 `status` 变了，整块收回成按钮，焦点也掉。改之前下拉一直在，没有这个问题，所以是这一批引入的回退。读屏用户还听不到下拉出现了。
+- 证据：从代码推断。验收脚本只核对了下拉出现与收回（`final/results-all.txt` 的“改状态点了才出下拉，取消收回”），没有看焦点。
+- 改法：零件内处理，不动写入链路：`editing` 变真后 `nextTick` 把焦点给下拉（给 `FormSelect` 外层 `div` 一个 ref，找里面的触发器）；取消、状态变了收回时，如果焦点原本在这块里，`nextTick` 把焦点放回“改状态”按钮。`StatusSwitch.md` 的交互里写一句焦点去向。
+- 写入链路本身核对过、没有问题：`useStatusChange`、`UncommittedDialog`、`WriteResult` 的重试与提交号反馈没改；失败（哈希冲突、锁超时）时 `status` 不变，下拉与所选值留着，可以重试或取消；`pending` 时下拉与“取消”都禁用。
+
+### 3. 重要：浮层与整屏标了 `aria-modal`，但遮罩下面的正文照样能 Tab 进去
+
+- 位置：`packages/dev-panel/src/web/parts/PeekPanel.vue:41-42`；宿主 `packages/dev-panel/src/web/pages/TaskPage.vue:152-153`（正文 `PageShell` 与面板是同一个父级下的兄弟）。
+- 场景：1280 宽、左栏默认 300 时内容区约 969px，就是浮层，这是常见笔记本宽度上的默认摆法，不是边角情况。面板打开后焦点在标题上，Shift+Tab 回到遮罩下面的 README 链接、“改状态”“编辑 README”；整屏（390）时还会落到被面板完全盖住的元素上，看不到焦点在哪。`aria-modal="true"` 让读屏把面板外的内容当成不可达，焦点却真的到了外面，读屏用户会听到空白。遮罩只盖内容区，左栏与顶栏照常可点，所以浮层实际上也不是“全页模态”。
+- 证据：从代码推断；实施记录自认“Tab 能走出去”。
+- 改法（都在 Task 页与零件内，一两行）：
+  - 浮层与整屏时给正文加 `inert`：`<PageShell :inert="peek && peekMode !== 'side' ? true : undefined">`，遮罩下面的东西既点不到也 Tab 不到，和遮罩的视觉一致；
+  - 浮层去掉 `aria-modal`（左栏、顶栏仍可操作，按非模态对话框读），只在整屏时保留；整屏时顶栏仍在 Tab 顺序里，若要彻底，可在整屏时把面板 Teleport 到 `body` 并对外壳加 `inert`，但这要外壳配合，收益不大，可以写进 `PeekPanel.md` 的“不支持”；
+  - `PeekPanel.md` 的“读屏器按 role=dialog 读……浮层与整屏是模态”一句按改后的实际行为改写。
+
+- 补充：加 `inert` 后，`TaskPage.vue:142-147` 归还焦点的 `watch(peek)` 要改成 `flush: "post"`。现在是缺省的 `pre`，在 DOM 更新前执行，那时正文还带着 `inert`，`opener.focus()` 会失败。
+
+### 4. 重要：手机整屏的速览面板会盖住“登录失效”对话框，页面卡死
+
+- 位置：`packages/dev-panel/src/web/parts/PeekPanel.vue:42`（整屏时 `fixed z-50`）；外壳 `packages/dev-panel/src/web/App.vue:352`（登录失效的遮罩 `fixed inset-0 z-50`，在 `Splitter` 之前）与 `:361`（失效时 `Splitter` 整体 `inert`）。
+- 场景：390 宽时在 Task 页开着速览（整屏），面板重启或 cookie 失效（每次合入后 `service:restart` 都会让旧 cookie 作废）。外壳弹出登录失效对话框，同时把 `Splitter` 设为 `inert`。速览面板与对话框的遮罩都是 `z-50`，中间没有别的层叠上下文（`Splitter` 的格子、`main` 都只有 `relative`、没有 `z-index`、`transform`），同级时按文档顺序叠，面板在后，画在对话框上面；面板又在 `inert` 里，点“关闭”没反应。用户看到一个点不动的面板，看不到“重新登录”的说明与按钮。桌面的并排、浮层是 `z-30`，不受影响。
+- 证据：从代码推断（CSS 层叠顺序）。验收没有覆盖“速览开着时登录失效”。
+- 改法：整屏也用低于外壳对话框的层，例如 `z-40`（顶栏本身没有 `z-index`，照样能盖住）；或者把登录失效的遮罩挪到 `Splitter` 之后、层级提到外壳专用的更高一档。顺手在 `PeekPanel.md` 写明它的层级低于外壳的阻挡层。补一条验收：390 整屏速览开着时让 cookie 失效，对话框可见、可操作。
+
+### 5. 建议：没有“打开它的链接”时关闭速览，焦点掉到 body
+
+- 位置：`packages/dev-panel/src/web/pages/TaskPage.vue:142-147`。
+- 场景：`opener` 只在本页点侧栏链接时记下。从 Work 页展开行的速览链接进来、刷新、贴分享来的网址时没有 `opener`；这时按 Esc 或点“关闭”，焦点所在的面板被卸载，焦点落到 `body`，键盘用户要从头 Tab。
+- 证据：从代码推断。验收的“焦点回到原来的链接”只走了本页点开的路径。
+- 改法：`opener` 不在时退回到页标题（`main` 里的 `h1`，与外壳 `focusHeading` 同一个落点；可以在 Task 页取 `document.querySelector("#nbdev-main h1")`，或让 `PageShell` 暴露标题元素）。
+
+### 6. 建议：`?peek=evidence/…` 不核对是不是这个 Task 的证据；分享链接刷新时先闪一句错误
+
+- 位置：`packages/dev-panel/src/web/pages/TaskPage.vue:59-63`（`evidenceUrl`）、`:267-270`；解析 `packages/dev-panel/src/web/host/peek.ts:25`。
+- 场景与核对结果（跨 Work 与非法值）：
+  - 非法值（未知种类、缺段、绝对路径、`..`、数组）当作没开，单元测试覆盖，实测 `bun test --isolate tests/web-peek.test.ts` 2 过；
+  - `artifact/<id>` 的接口按本页的 Work、Task 取，别的 Task 的产物 id 得到 404，面板里写“找不到 … 这个产物”，可以关，没问题；
+  - `doc/<checkout>/<path>` 由服务端按文档树与记录文档核对，跨 Work 的文档能看，与文档页同一口径，没问题；
+  - `evidence/<path>` 没有任何核对：任意 `.agents/works/` 下的文件（别的 Work 的证据、产物目录里的文件）都会以“证据 文件名”的名义显示在这个 Task 页上。产物来源只给 `.agents/works/` 下的文件、iframe 有沙箱，所以不是安全问题，只是名不副实；
+  - 刷新或打开分享链接时，Task 接口与 `/api/meta` 回来之前 `evidenceUrl` 为 `null`，面板先显示“读不到证据的地址（面板还没取到产物来源）”，数据到了才换成 iframe。
+- 证据：从代码推断。
+- 改法：证据只在 `page.data.value.detail.evidences` 里有这个文件（`kind === "file"`）时显示，否则写“这个 Task 没有这份证据”；Task 数据还没到时显示加载，不显示错误句。
+
+### 7. 建议：新收进文档树的 `.agents/works/README.md`、`AGENTS.md` 在文档页有“编辑”，编辑页一定拒绝，原因还说错
+
+- 位置：`packages/dev-panel/src/core/docs.ts:27`、`:50`（收进树）；`packages/dev-panel/src/core/edit-ops.ts:99`（`WORKS_ROOT/` 开头的路径在查文档树之前就拒）；入口 `packages/dev-panel/src/web/pages/DocsPage.vue:74`（主工作区的文档一律给“编辑”）。
+- 场景：首页撞号点“怎么处理”到 `.agents/works/README.md` 的文档页，右上有“编辑”；点进去，编辑页报“不能在面板上编辑 .agents/works/README.md：记录目录里只能编辑 README 与第一层的文档类产物”。这两份不是记录，这句原因是错的；同为治理文档的各处 `AGENTS.md` 在面板上能编辑，这两份却不能。
+- 证据：实测（在集成分支 worktree 上直接调 `listDocPaths` 与 `classifyEditable`，脚本在 `/dev/shm`，只读）：两份都在文档树里，`classifyEditable` 都回 `not_editable`、`reason: not_listed`、上面那句文案。
+- 文档树的其它口径核对过，没受影响：`branchChangedDocs`、`uncommittedDocs` 用同一个 `DOC_SCOPES`，差异与树同口径；`.agents/works/<Work>/…` 下的路径 `classifyDoc` 仍回 `null`（段数不是 3），记录不进树；`/api/docs/file` 的白名单随树放开这两份，读经路径守卫。
+- 改法：在 `edit-ops.ts` 的 `WORKS_ROOT/` 拒绝之前，先放行逐字等于这两份、且在 `listDocPaths` 里的路径（`kind: "repo_doc"`）；或者确定它们不该在面板上改，就让拒绝原因写清楚（“Work 与 Task 的约定文件不在面板上改”），文档页对这两份不给“编辑”。前者与“文档树上的文档能编辑”的现有规则一致，推荐前者。`docs/panel.md` 文档树那句的括号里顺带写明能不能编辑。
+
+### 8. 建议：Task 表的 ARIA 表格结构有三处小错
+
+- 位置：`packages/dev-panel/src/web/parts/TaskTable.vue:40`、`:49`、`:81-82`。
+- 场景：
+  - `aria-rowcount` 写死成 `tasks.length + 1`，展开后多出的展开行也是 `role="row"`，行数对不上。所有行都在 DOM 里时本来就不需要 `aria-rowcount`，写错反而让读屏报错的“第几行，共几行”；
+  - 展开行只有一个 `role="cell"`，没有 `aria-colspan`，读屏把整块展开内容当成第 1 列（“展开”列）的格子读；
+  - 展开按钮已经有 `aria-expanded`，可读名还随状态在“展开 t15”“收起 t15”之间换，读出来是“收起 t15，已展开”，重复（APG 的展开按钮名字不随状态变）。
+- 证据：从代码推断。
+- 改法：去掉 `aria-rowcount`；展开行的格子加 `aria-colspan="9"`（手机三列时为 `3`，或者用一个 computed 按可见列数给）；按钮名固定为“t15 的详情”之类，状态只靠 `aria-expanded`。`TaskTable.md` 的“无障碍”一节同步。
+
+### 9. 建议：左栏分组后的树，分组名与角标对读屏不可靠
+
+- 位置：`packages/dev-panel/src/web/parts/PanelNav.vue:198-199`、`:212-213`。
+- 场景：
+  - 按状态分组时，组名是 `role="none"` 的 `<p>`，放在 `role="tree"` 里面。树在焦点模式下只按 `treeitem` 走，组名这段文字读屏用户听不到，不知道当前 Work 在“完成”还是“进行中”组（虽然每行的隐藏文字有状态，“更多”组的含义——30 天没更新——就丢了）；
+  - “有会话在动”的图标与“待答 N”的 `Badge` 靠 `aria-label` 给名字，这两个元素是没有角色的 `span`，ARIA 1.2 不许给通用元素命名，各读屏对它在链接名字里算不算不一致；同一行的状态用的是 `sr-only` 文字，两种做法混用。
+- 证据：从代码推断；读屏未验证（实施记录也写了没在真的读屏器里试）。分组后 `aria-level` 仍是 Work 1、Task 2，`role="group"` 只包 Task，树的层级没有被分组打乱，这一点核对过、没问题。
+- 改法：每个带标题的组包一层 `role="group"`、`aria-label` 取组名（`tree` 允许直接拥有 `group`，Work 行已经显式写了 `aria-level="1"`，层级不变），组名的 `<p>` 设 `aria-hidden`；在动与待答改成与状态相同的 `sr-only` 文字（“，有会话在动”“，待答 3”），图标与徽标 `aria-hidden`。
+
+### 10. 建议：`docs/panel.md` 与 `prefs.ts` 的说明没跟上左栏与速览的改动
+
+- 位置：`packages/dev-panel/docs/panel.md:404`（“偏好”列举）、`:391`（“外壳”一段的左栏与“查询参数变化不重建”）；`packages/dev-panel/src/web/host/prefs.ts:3-4`（文件头的偏好列举）。
+- 场景：新偏好“左栏 Work 列表的排列方式”（`nav-arrange`）没进两处的列举；“外壳”一段写左栏只列 D4 的取舍，没有色点、角标、筛选与四种排列（零件 `PanelNav.md` 写了，合同正文没写）；“查询参数（`?pane=`、`?path=`、`?checkout=`）变化不重建”没加 `?peek=`。合同是 `docs/panel.md` 的“前端”一节，下一批的人按它找不到这些行为。
+- 证据：从代码推断（对照 diff 与现文）。
+- 改法：三处各补一句；“外壳”一段里左栏的新行为可以只写一句并指向 `PanelNav.md`。
+
+## 核对过、没有问题的地方
+
+- 服务端撞号 `ids`：`status.ts` 只把 `findConflicts` 已有的 `ids` 放进收件箱条目，带 `--work` 时的过滤不变，`cli.md` 同步、`cli.test.ts` 场景 6 钉住。`locations[].checkout` 是绝对路径，但面板的 `/api/checkouts`（`views.ts:232` 的 `root`）本来就给绝对路径，这里没有新的泄露面；首页只显示 worktree 的目录名、两个本地分支与 ref 个数。
+- `?peek=` 与页面实例：Task 页的 `key` 是 `pageKey`（路由名加路径参数），改 `?peek=` 不重建页面，`page` 资源的地址不依赖查询参数，不重取；外壳只在 `pageKey` 变了时挪焦点（`App.vue:263-265`），开关速览不触发。从 Work 页的速览链接进 Task 页时，外壳先把焦点给页标题，`PeekPanel` 挂载后的 `nextTick` 排在后面，最后落在面板标题上。
+- 后退、刷新、分享、中键：自己 push 的就 `router.back()`，分享来的就替换；开着一个再换另一个用 `replace`，不加历史；普通左键之外（`isPlainClick`）不拦，中键开完整页。证据链接原本的 `target="_blank"` 只在中键与修饰键时生效。
+- 并排与浮层随左栏拖宽切换：`ResizeObserver` 盯 `main`，宽度用 `clientWidth`（不含滚动条），正文的 `paddingRight` 加在 `main` 里面，不会反过来改变测量；验收里 1440 宽左栏 480 时变浮层。
+- Work 页就地展开：三个固定槽，收起时地址变 `null`，`useResource` 中止在途请求并清数据；换给另一个 Task 时 `keepData=false` 清掉旧数据，`details` 再按 `taskId` 核对一次；换 Work 时页面按 `pageKey` 重建，槽全部释放；推送重取沿用每个资源自己的单飞。`toggleExpansion` 的单元测试 1 过。
+- 左栏：分组后 Work 行仍是 `aria-level="1"`、Task 在 `role="group"` 里是 2；树仍是一个停靠点，筛选框与排列在树外；筛掉当前停靠的行时 `rovingKey` 回落到当前行或第一行；“滚进可视区只一次”的逻辑没动，换排列、推送都不会把树拽回当前行。排列方式经 `prefs.ts` 读写，读到不认识的值回缺省。`nav.test.ts` 6 过。
+- 状态只显示一处：页头 `StatusChip` 是唯一的状态显示；写入链路（预览、未提交确认、锁等待提示、哈希冲突、重试、提交号）原样保留，见第 2 条末尾。
+- 代码质量禁止清单：diff 里没有按错误文案分支、没有新的 `catch`、没有跨包深导入（前端导入的是本包 `core/sections.ts`，与已有的 `validateAnswerValue` 同一做法）、没有删无关代码或注释（删掉的注释都随代码改写或挪到新位置）、没有放宽断言或跳过测试（`web-inbox.test.ts` 只给夹具补了 `ids: []`）。`PeekPanel` 只管外框，取数与历史在 Task 页，没有长成通用宿主。
+
+## 结论
+
+- 阻断 0 条，重要 4 条（第 1 至 4 条），建议 6 条（第 5 至 10 条）。
+- 能合入，但建议先修 4 条重要的再合：每条都只动几行，且第 1 条是显示错的数据、第 2 条是这一批引入的键盘回退、第 4 条在手机上会卡死。四条都不涉及服务端合同变化（第 1 条若选服务端补字段，只多一个字段）。建议类可以合入后在下一批顺手做。
