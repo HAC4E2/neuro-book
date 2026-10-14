@@ -36,6 +36,16 @@
 5. 浮层使用 `.nb-ui-popover-surface`。菜单叠加 `.nb-ui-menu-surface`；大块玻璃面按设计语言要求显式叠加 `.nb-ui-surface-rim`。组件不得复制这些属性。
 6. 新公共 token 至少有两个独立消费点或明确的跨组件角色。单组件差异留在组件内部，第三方主题专用差异走 manifest `declares`。
 
+### 2.1 叠放层级（z-index）
+
+1. 数值只在 [`src/theme/z-index.ts`](../src/theme/z-index.ts) 登记，组件与宿主应用用 `:style` 绑定登记表里的值，不在原子类或 CSS 里写同一个数。固定定位或传送出去的整页浮层必须从登记表取；组件内部的局部叠放（不超过 50，例如 `z-10`）可以写字面量。nb-ui 的层级测试扫描组件与组合函数，出现大于 50 的字面量即失败；宿主应用的整页浮层同样从 `@notnotype/nb-ui/theme` 取，刻意压在一切之上的（例如离线横幅）保留字面量并就地注释为什么。
+2. 各档从低到高：页面里的局部浮层（下拉、提示、拖放落点）、工作台拖影、浮动窗口各层、模态各层、模态里的浮层、通知、右键菜单、命令面板、组件 Lab 的检查框。新增一档时放进这个顺序，并补进层级测试的顺序断言。
+3. 三条动态规则：
+   - 浮动窗口按**嵌套深度**叠放：从窗口里开出的窗口压住外层，每层的局部浮层压住本层；
+   - 同时打开的模态按**打开顺序**叠放，后打开的在上面，不靠 DOM 顺序（传送锚点在挂载时就定了，和打开顺序无关）；
+   - 容器**向内容提供浮层层级**：对话框与浮动窗口经 `NB_POPOVER_Z_INDEX` 提供，内容里的浮层组件读这个注入，没有注入时回退到页面浮层档。新写的浮层组件必须读它（`useDropdownSurfaceStyle` 或直接注入），否则放进对话框就被盖住。
+4. 层级与遮罩只在产品页验收：组件 Lab 的画布本身是一个层叠上下文，会掩盖层级缺陷。
+
 ## 3. 几何、排版与动效
 
 1. 单行字段默认消费 `.nb-ui-control-h-md` 与 `.nb-ui-control-px`；紧凑档消费 `sm`，大档消费 `lg`。组件模板不得重新写固定高度模拟同一档。
@@ -109,8 +119,7 @@
 - **滚动条**：内置 4px 悬浮 macOS 胶囊滑块（仅在内容溢出时为视口动态分配 `pr-1.5`，支持自由鼠标拖拽），底层逻辑抽取为 `useFloatingScrollbar.ts`。
 
 #### 6. `FormInput` & `FormNumberInput`（输入框规范）
-- **展示容器**：Lab 展示统一装配 `macos-compact-card` 磨砂卡片容器（75% 半透明底色 + 20px 模糊 + 14px 圆角 + 4 层立体环境阴影）。
-- **状态准则**：常态与悬停态素雅不抖动（不主动改变边框颜色，仅依赖指针样式反馈），聚焦态统一点亮 Apple 原生 Focus 蓝光扩散光晕（`--focus-ring`）。
+- **状态准则**：常态与悬停态素雅不抖动（不主动改变边框颜色，仅依赖指针样式反馈），聚焦态统一点亮 Apple 原生 Focus 蓝光扩散光晕（`--focus-ring`）；控件填满所在的条、四周没有余地时（标签、状态栏条目、整行标题），改画内嵌焦点线（`.nb-ui-focus-ring-inset`，`Button`/`IconButton` 的 `focusRing="inset"`），同一焦点描边色。
 - **数值微调**：步进按钮支持滚轮、键盘上下键与 clamp 边界保护。
 
 #### 7. `Dropdown`（下拉菜单与动作浮层规范）
@@ -149,6 +158,7 @@
 - **受控尺寸**：几何只有 CSS px 一种口径。`Splitter` 的 `sizesPx` 是受控呈现（合计 = 面板空间，不含 sash），`panels` 用 `defaultSizePx` / `minSizePx` / `maxSizePx` / `sizing` / `collapse`；没有百分比往返，也没有 `autoSaveId`（原语不写存储）。等值发布被忽略，程序发布只改呈现、不产生用户提交。
 - **sash 几何**：默认每条占主轴 1px；`sashSizes` 按边界提供实际像素。零值不占布局且不可交互，也不渲染装饰；非法值诊断后回退，主轴守恒不依赖 CSS 隐藏。设备像素对齐只作用在装饰层的内联几何上，**不移动 separator 的命中盒**，也不改子节点布局。常驻接缝厚度为 1 CSS px、近端边对齐设备像素；交互装饰带最多 3px，按相邻面板与 sash 可用空间夹紧，收起边界不因 overflow 裁窄。
 - **拖拽触感**：静止态为常驻的 1px `--divider` 分界线，悬浮/拖动时在其上点亮品牌色指示带；命中边距 fine 5px / coarse 15px，且 hover、光标、按下与高亮读同一份命中结果——T/十字处两条线会一起点亮。相同命中 scope 连续停留约 250ms 后渐显，离开淡出；`prefers-reduced-motion: reduce` 保留延迟但取消中间渐变。
+- **悬停线的样子归主题**：线芯的颜色、厚度、圆角与发光取 `--sash-line-color`、`--sash-line-size`、`--sash-line-radius`、`--sash-line-glow`，缺省是铺满装饰带的 3px 强调色实线；比装饰带细的线芯对齐静止接缝（近端边对齐设备像素），不在装饰带里居中。长轴两端：自由端按 `--sash-line-inset` 缩进，碰到另一条同时亮着的线的一端连着（T 形交汇时两条连成一体，只亮一条时两端都缩）。网格按树结构把每个分支的线两端挨着哪条外层边界传给 `Splitter`（`sashLineEnds`）。
 - **手势边界**：一个公开 `GridRenderer` 独占一份会话，一次按下命中的最多两根轴（一根 width + 一根 height）属于同一场手势：`gesture-update` 携带预览布局让整棵子树按父盒实时变化，松手只发一次 `gesture-end(commit)`，`commit.changes` 里每项是该分支全部直接子节点沿主轴的 px（`baseline`/`target`/`active`/`compensated`/`collapsed`），宿主用 `grid.resizeBranches(changes)` 一次原子落账。独立 `Splitter` 仍用单分支 `SplitterGestureState`（`sizesPx` + `collapsed`）。
 - **边界规则**：基线在用户开始时捕获，一次指针操作或一次键盘连发只结束一次；`keyup` 或失焦结束键盘手势；
 -  `Escape`、`pointercancel`、窗口失焦、卸载与 panel 身份/约束/方向/禁用变化取消且不产生保存意图，并同时复位上游拖动状态；挂载、约束变化与视口重算仍只发 `layout`。
@@ -161,28 +171,29 @@
 - 前两个原语只渲染，不拥有手势、落点登记、业务状态或 Teleport；position、坐标、宽高与 z-index 由宿主提供。根均为 `aria-hidden`、不可选且不接管指针。
 - `DropFeedbackPreview` 是宿主落点解析器给出的**语义命中几何**（viewport client 坐标）：`areaRect`（边缘插入带 / 中央整片叶 / 空容器整个内容盒）、`entryRect`（高亮条目）、`indicator`（插入线）、`orientation`（容器主轴）。覆盖层只画，不改写这份几何：内缩只进绘制盒，命中、序位与提交都用原始矩形。
 - 覆盖层合同：`preview` 里一份有效几何都没有就不渲染；有有效 `areaRect` 时**不画插线**（区域已承诺落点，两条边叠起来会被读成两个落点），只有拿不出区域、只剩插入位的落点（列表插入位、原位锚点）才画线；中央保持布局的 `keep` 只给整片叶区域、没有锚点与插入线，调用方释放时也不提交。区域四边内缩 `min(6, 尺寸/4)`、插线只缩长轴 `min(2, 长轴/4)` 以保住窄/折叠目标的正面积。公共标记为 `data-drop-feedback` 与 `data-drop-feedback-area|-line|-entry|-label|-live`；attrs 透传到覆盖层根（`<Teleport>` 不会自动继承，组件内手动 `useAttrs`），落点种类、轴、并入数量一类业务语义由调用方写成 `data-*`。
-- 提示药丸放在独立 fixed 包装里（不嵌进 2px 线或小条目盒，不被裁掉），有合法反馈且文案非空就显示：区域容得下「药丸 + 16px」时居中，否则贴锚点外侧并夹紧进视口 8px；尺寸由 `ResizeObserver` 缓存，坐标变化只重排不重读布局，反馈消失即断开观察。无障碍播报是独立的 `aria-live="polite"` 区域，只随文案变化更新，不逐像素播报。
-- area/entry 使用1px accent 70%描边、12%底色、`--radius-control` 与 `--elevation-raised`；原语只提供opacity过渡，区域几何过渡由共享覆盖层负责。line 使用实色 accent、`--radius-pill` 与4px accent光晕，无几何过渡；宿主保留2px实体厚度，不能与3px sash规则混用。
+- 提示药丸放在独立 fixed 包装里（不嵌进 2px 线或小条目盒，不被裁掉），有合法反馈且文案非空就显示：区域容得下「药丸 + 16px」时居中，否则贴锚点外侧并夹紧进视口 8px；只有插入线时宿主可给 `labelAt: "line-end"`，药丸贴在线的末端，用在线下方紧挨着一行标题的地方；提交后宿主可给 `settling: true` 的预览做收尾，区域滑到最终矩形再淡出，淡完（或减少动效、没有区域时立即）发 `settled`；尺寸由 `ResizeObserver` 缓存，坐标变化只重排不重读布局，反馈消失即断开观察。无障碍播报是独立的 `aria-live="polite"` 区域，只随文案变化更新，不逐像素播报。
+- area/entry 使用 1px `--drop-area-border` 描边（缺省 accent 70%）、`--drop-area-fill` 底色（缺省 accent 12%）、`--radius-control` 与 `--elevation-raised`，深浅由主题定；原语只提供opacity过渡，区域几何过渡由共享覆盖层负责。line 使用实色 accent、`--radius-pill` 与4px accent光晕，无几何过渡；宿主保留2px实体厚度，不能与3px sash规则混用。
 - 药丸使用6px图文间距、4px×12px内边距、14px图标、accent 40%描边、90% `--panel-surface` 底、`--accent-text`，字体与阴影/模糊均消费主题token。文字单行截断；减少透明或增强对比时改实色面板底并关闭模糊，减少动效时取消过渡。
 - 几何入口在 `@notnotype/nb-ui/layout`：`resolveGridInsertion` 沿目标轴前/后 20% 返回插入位、`targetId`（命中叶）和 `halfRect`（该叶对应半区），中央 60% 返回 `keep`；是否呈现 keep 由宿主行为决定。叶间隙归后一叶，非末叶后缘仍归它自己。`resolveListInsertion` 给列表插入位，一位一线；前一项后半、间隙、后一项前半归同一位。内部线居中、追加锚末个可用成员后缘、空列表锚内容盒前缘。
 - `resolveListInsertion` 可选 `edgeGap`（默认0）仅给首个可见成员前与末个可见成员后留白，内部间隙仍居中，空列表不偏移；空间不足时夹紧，负数/非有限退为0。Editor 标签带与 Workbench 容器切换器条目带都传4px（Editor 配合标签左右6px外边距、内部为5px/2px/5px；Workbench 条目相邻、只在首尾留白）；内容区的边缘插入带不消费它，默认几何不变。
 - 区域及其居中提示首次出现按 `--motion-fast` / `--ease-standard` 淡入；连续换区保留同一节点，矩形的left/top/width/height与提示的left/top按 `--motion-base` / `--ease-standard` 过渡，文案立即更新，不重放淡入。过渡只影响fixed装饰盒，不改变命中、提交或正文布局；插线即时定位，取消立即卸载，无离场残留；reduced-motion取消动画和过渡。
-- 几何与视觉分开：Editor 与 Workbench 的反馈均使用公共覆盖层的 fixed viewport 布局；不要另写业务私有区域框、线宽、提示标签或几何过渡。只需静态/local示意时才直接用绘制原语。playground `drop-indicator` 的 area/entry/line/compact/long-label 五场景提供两轴及窄屏对照，并可在同一场景里打开共享覆盖层（按真实矩形落位）直接 inspect。
+- 几何与视觉分开：Editor 与 Workbench 的反馈均使用公共覆盖层的 fixed viewport 布局；不要另写业务私有区域框、线宽、提示标签或几何过渡。只需静态/local示意时才直接用绘制原语。Component Lab 的 `DropIndicator`（area、entry、line）、`DropIndicatorLabel` 与 `DropFeedbackOverlay` 场景提供对照，共享覆盖层按真实矩形落位。
 - 新接入步骤：宿主先定义来源、目标与原子提交意图；dnd-kit 只管理输入和手势生命周期，纯解析器一次返回动作与预览，宿主只在释放时提交。列表用 `resolveListInsertion`，四边/中心用 `resolveGridEdgeDrop`；不要用默认 `useSortable` 的乐观 DOM 排序来替代“显示落点、释放提交”的合同。
 - Editor 原位落点显示插入线、正文中央保留整区反馈，均以 `action:null` 表示释放不提交。Workbench 展开内容区传 `edgeRatio: 0.5`，前后各半都可提交，中点归后半；非法方向无反馈。全部可见成员收成细条时，剩余内容区作为一个落点，不拆细条。容器原位换序可以 `noop` 显示一条插入线，View 投 Switcher 则创建新容器。Workbench 边缘消费 `halfRect`，条目反馈只有线、没有额外高亮。
 - 登记真实元素，统一使用可见 client 矩形并检查浮层遮挡；过滤拖动反馈与占位节点，不以它们作为排序成员。源码示例为主应用 `EditorDragProvider.vue` / `useEditorTabDrag.ts`；它复用工作台既有的 DOM reader 与输入门槛。需要稳定来源几何时使用 `DragOverlay`，不要误以为 `Feedback` 的 `clone` 模式会让原元素留在原位。
 - 一场手势只发布一个落点、一份反馈。前一项后半、间隙、后一项前半必须归到同一个语义插入位与同一个线坐标。反馈不参与 flex 布局，不能挤开成员或改变命中。每个宿主明确自己的取消条件；停止、失焦、切换工作面、结构失效和卸载必须清帧、监听与观察器。
 - 指针停住时滚动/尺寸变化仍需重算；正常释放按最终坐标再次验证且只提交最后已显示的同一动作，不允许失效锚点偷偷退化成末尾。外部文件/文本走原生数据交换；内部标签移动不能写 `text/plain` 把路径漏进正文。组件原语不拥有这些业务规则。
 
-#### 13. `Drawer`、`DialogWindow` & `AlertDialog`（浮动窗口与反馈规范）
+#### 13. `Drawer`、`Dialog` & `AlertDialog`（对话框、浮动窗口与反馈规范）
 - **Drawer**：支持 `top` / `bottom` / `left` / `right` 四向滑出，背景采用 80% Scrim + 4px 模糊，右侧默认 380px 大纲与设定抽屉。
-  - **DialogWindow**：明确使用非模态 Dialog 语义（`DialogRoot :modal="false"`），不渲染 Overlay、不困住焦点、不锁定窗口外指针或背景滚动；窗口外页面必须继续可交互。
-  - 标题、`header` slot 和无标题回退都必须生成 `DialogTitle`；关闭按钮必须有可访问名称。标题一律左对齐，不做居中变体；关闭按钮用 `sm` 尺寸贴右上、不贴窗口圆角。Escape、关闭按钮与 `request-close` 由受控宿主决定最终关闭时机。
+- **Dialog**：一个组件两种用法，外框只维护一份（组件文档 [`Dialog.md`](../src/components/feedback/Dialog.md)）。
+  - **模态（缺省）**：遮罩、居中、焦点锁定、背景不可交互，关闭后焦点还给打开前的元素。点遮罩要按下与松开都在遮罩上；对话框里开着浮层时，这一下只关浮层。Escape 只关最上层，输入法组字时与内层控件已处理（`preventDefault`）的 Escape 不关。
+  - **浮动窗口（`modal=false`）**：非模态语义，不渲染遮罩、不困住焦点、不锁定窗口外指针或背景滚动；窗口外页面必须继续可交互。标题区可拖动；`resizable` 默认关闭，开启后提供右、下两条边与四个角的手柄。鼠标在松开时提交 `update:width` / `update:height`，方向键按 10px、Shift 按 1px 调整，且不突破 `minWidth` / `minHeight`。
+  - 标题、`header` slot 和无标题回退都必须生成对话框标题；关闭按钮必须有可访问名称。标题一律左对齐，不做居中变体；关闭按钮用 `sm` 尺寸贴右上、不贴圆角。遮罩、Escape、取消与关闭按钮一律经 `request-close`，由受控宿主决定最终关闭时机。
   - 默认 Portal 目标为 `body`。公共组件不得绑定产品私有主题宿主；产品消费者必须显式传入主题宿主目标，避免 Portal 脱离主题变量作用域。
-  - 标题栏拖动由项目层实现；`resizable` 默认关闭，开启后提供右侧、底部和右下角手柄。鼠标 pointerup 提交 `update:width` / `update:height`，方向键按 10px 调整、Shift 按 1px 调整，且不突破 `minWidth` / `minHeight`。
-  - DialogWindow body 内的 nb-ui `FormSelect` 下拉使用高于窗口表面的专用 popover 层级；窗口外仍使用普通 popover 层级，避免下拉被非模态窗口遮挡。
-  - 窄屏窗口宽度必须收敛到视口内，不产生页面级横向溢出；body 拥有长内容滚动权，footer 不随 body 滚动。
-  - **内边距只有一层**：body 的 `px-4 py-3` 是窗口给的那一层；内容自带页面节律（导航轨 / 内容列各有自己的 `--space-*` 边距）时，宿主必须传 `body-class="!p-0"` 把这层交出去。两层叠起来会到 24–32px，读起来像内容被挤在窗口中间。
+  - 两种用法都向内容树提供局部浮层层级，里面的下拉、提示、取色面板显示在面板之上（规则见“叠放层级”）。
+  - 窄屏宽度必须收敛到容器内，不产生页面级横向溢出；body 拥有长内容滚动权，footer 不随 body 滚动。
+  - **内边距只有一层**：body 自带的内边距是对话框给的那一层；内容自带页面节律（导航轨 / 内容列各有自己的 `--space-*` 边距）时，宿主必须传 `body-class="!p-0"` 把这层交出去。两层叠起来会到 24–32px，读起来像内容被挤在中间。
 - **AlertDialog**：居中破坏性二次确认模态窗，强制提供有明确意图的按钮出口（取消/确认），支持 `danger` / `warning` / `accent` 语调；受控模式可不提供 `trigger` slot，组件不得为无触发器实例渲染空的 `AlertDialogTrigger`。
 
 #### 14. `Progress` & `Avatar` & `Kbd`（数据反馈与微排版组件规范）
@@ -260,9 +271,9 @@
   - **几何重构**：外框圆角明确锁定为 **14px**（`--nb-popover-radius: 14px`），彻底移除对 20px 巨角 `--radius-panel` 的盲目继承；与内部 8px 输入框（`rounded-lg`）达成黄金同心比例；
   - **纯净现代通透质感**：直接消费全局 `.nb-ui-popover-surface`，彻底清除顶部生硬塑料白光条（消除日光灯管反光），在 640px 宽度上呈现深邃柔和的环境悬浮投影与纯净毛玻璃底。
 
-- **Tier 4: 模态对话框与大窗体（Dialog / DialogWindow / AlertDialog · 独立窗口）**：
-  - **几何与层级**：外框圆角 16px ~ 20px（`var(--radius-panel)`），消费 `NB_Z_INDEX.dialog`（9300）及以上层级；
-  - **模态保护**：配合全屏半透明遮罩与严格焦点锁定（FocusScope），支持外点阻断与键盘 Escape。
+- **Tier 4: 对话框与浮动窗口（Dialog 的两种用法 / AlertDialog · 独立窗口）**：
+  - **几何与层级**：外框圆角取 `--radius-dialog`（`.nb-ui-dialog-surface`）；层级按“叠放层级”一节从登记表取，模态按打开顺序、浮动窗口按嵌套深度；
+  - **模态保护**：配合全屏半透明遮罩与焦点锁定，外点与 Escape 经组件判定后再请求关闭。
 
 - **全局 Surface 基座升级（Elevation & Blur Upgrade）**：
   1. **立体微反光 4 阶柔影（`--elevation-popover`）**：
@@ -280,7 +291,7 @@
 - **材质**：消费 `.nb-ui-popover-surface` 基座（4 阶立体微反光投影 + 130% 饱和滤波）与 `--nb-popover-pad`，选中项用 `--overlay-item-active`；不叠第二层磨砂、不新开材质档。
 - **键盘与焦点**：输入框 `role=combobox` + `aria-activedescendant`；ArrowUp/Down 走 `moveHighlight`（跳过禁用、首尾回绕）并 `scrollIntoView(block:nearest)`；Enter 在组合输入态（`isComposing`）不提交；Escape 只关闭本层并 `stopPropagation`；Tab 交给 Reka FocusScope 后阻止冒泡——下层 document/window 监听不得收到这些按键。打开时记录触发前焦点，关闭后归还仍连接的元素。
 - **关闭交接（`closed`）**：关闭不加退场动画；`closed` 在内容真实卸载、Reka 焦点栈/滚动锁/指针锁全部释放后按打开周期发一次，供宿主在关闭完成后再执行命令或激活下一个交互层。`AlertDialog` 的同名事件复用同一时序；宿主不得用固定等待毫秒数替代。
-- **打开动效**：挂载时消费 `.nb-ui-popover-motion`（见设计语言 §七浮层入场配方）。
+- **打开动效**：挂载时消费 `.nb-ui-popover-motion`（见设计语言「七、动效」的「浮层入退场的编排是固定的」）。
 
 ### 4.3 受控视图的数据层契约（状态、请求与惰性加载）
 
@@ -323,6 +334,8 @@
   「Extraneous non-props attributes」警告，布局随之静默消失。需要承载滚动、内边距的组件，
   把这两件事写在**它自己的根**上，不要指望调用点。
   `sections/**` 的机械保证见 `sections-single-root.contract.test.ts`。
+  父组件的 scoped 样式同理，只命中子组件的单一根；把 class 转发到内部元素的组件（例如 `FormSelect` 交给触发器），
+  带不上父组件的作用域属性，宽度这类布局给外层包裹元素。
 - **布局类随内容走，不随选中态走**。外壳给内容区套的布局类（`overflow`、内边距、`layout` 模式）
   必须挂在**当前被渲染的那一份内容**上（过渡内的 keyed 子元素）。挂在随「已选中区段」立即翻转的
   外层容器上时，`out-in` 期间仍在渲染的**离场内容**会被套上**下一份内容**的布局：
@@ -330,9 +343,9 @@
 - **区段/视图的接线清单**（新增一个区段时逐条过）：
   1. 单根，或明确把布局放自己根上；
   2. 在区段元数据里声明 `layout`（`scroll` 由外壳给内边距并拥有滚动，`fill` 自己占满、内部滚动）；
-  3. **不接收** `loading` / `loadError`，加载与失败由外壳统一呈现（见 §4.3）；
+  3. **不接收** `loading` / `loadError`，加载与失败由外壳统一呈现（见 4.3 节「受控视图的数据层契约」）；
   4. i18n 键归位：导航用 `settings.section.*`，视图内文案用 `settings.panels.*`；
-  5. 注册进 Component Lab（fixture + 同名 `.md` + `registry`/`index` 场景）。
+  5. 在 Component Lab 登记场景（同名 `.md` 与场景登记）。
 
 ## 5. 表单与无障碍
 
@@ -344,6 +357,10 @@
 5. 复合选择控件必须暴露正确角色和状态，并支持预期方向键、Home/End、Enter、Escape。关闭浮层后焦点回到触发器。
 6. 只读不等于禁用：只读字段可聚焦、可复制，不提交值变化；禁用控件不响应指针或键盘，也不进入正常 Tab 顺序。
 7. `prefers-reduced-motion` 与 `prefers-reduced-transparency` 的公共降级规则优先于主题。动效只解释出现、消失、位置或状态变化，不承担必要信息。
+8. **校验结果不改变表单的排版**：出错时不在字段下插入文字，否则错误一多，表单每提交一次就换一次样子。
+   - 能事先防住的不报错：必填项没填、格式不对时提交按钮不可用；长度靠输入上限，取值靠选择控件。
+   - 提交之后才知道的错（服务端拒绝、选的文件不合规）：对应字段标红并得到焦点（`FormField` 的 `error` 只标红、把原因交给读屏），看得见的原因写在一个固定位置。对话框里是页脚左侧的状态行（`Dialog` 的 `status`），一次只写一条。
+   - 字段旁的计数、说明这类辅助信息也不占新行：计数贴在标签行右端，说明走标签旁的说明图标。
 
 ## 6. 测试与交付
 
@@ -359,46 +376,15 @@
 6. UI 行为与视觉验收按 [UI 验收分档](../../../docs/testing/README.md#ui-验收分档) 进行，共享基础组件验证四种主题 × 配色组合及 390px，记录实测计算样式、键盘路径、控制台与页面错误；
 7. CSS 生成物变更时提交 `dist/nb-ui.css`，并明确阶段 2 尚未经 NeuroBook 主仓接入验证。
 
-## 7. Component Lab（/lab 诊断实验室）开发与展示规范
+## 7. Component Lab
 
-`/lab` 是组件设计语言推演、动效手感调优、多主题/配色回归与 Token 即时诊断的唯一官方运行台。新增或优化组件时必须遵守以下规范：
+nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/component-lab`](../../../docs/specs/ui/component-lab.md)，登记写法见 `packages/neuro-book/src/plugins/lab/web/fixtures/README.md`。playground 的 `/lab` 已删除；需要真实指针与布局引擎的手势验收（嵌套分栏、多栏分割）在 playground 的 `/acceptance/<组件>` 页，由 `e2e/nested-grid.spec.ts`、`e2e/splitter.spec.ts` 驱动。
 
-### 7.1 三栏仪器式架构规范
-1. **左栏导航（`LabNav` · 260px）**：
-   - 顶部提供高斯磨砂悬浮即时搜索栏，支持跨中文名、英文名、分组与描述进行即时模糊过滤，右上角展示全库组件计数（`N / M`）；
-   - 下部为按分类聚合的组件导航树，各组展示数量指示，所有滚动区域统一消费 macOS 极简悬浮滚动条规范，严禁出现浏览器原生粗重滚动条。
-2. **中栏舞台（`LabStage`）**：
-   - 顶部工具条提供场景（Scene）、视口断点（Responsive/Desktop/Tablet/Mobile）、主题（Theme）与配色（Colorway）切换；
-   - 画布区域承载对应组件的 `*Fixture.vue`，支持透出窗体磨砂底纹。
-3. **右栏检查器（`LabInspectorPanel` · 340px）**：
-   - 提供 Token 即时采样器、CSS 变量实时 Override 注入器、事件日志实时流与可访问性状态检查。
-
-### 7.2 Fixture（测试台用例）开发准则
-1. **磨砂卡片容器（`.macos-compact-card`）**：
-   - 所有组件展示必须包裹在 `.macos-compact-card` 容器中；
-   - 必须使用 **75% 半透明高斯磨砂玻璃标准配方**：`background: color-mix(in srgb, var(--bg-panel) 75%, transparent);` 搭配 `backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);` + 1px 细微环境边框（`color-mix(in srgb, var(--border-color) 70%, transparent)`）+ 2 层立体悬浮环境柔影（`0 20px 48px -12px ...` 与 `0 2px 8px ...`），既能优雅透出窗体背景底纹，又保证前景色高对比度与典雅的 macOS Liquid Glass 质感。
-2. **页面内多方案切换器（In-Page Scheme Switcher）**：
-   - 当组件存在多种设计风格或展示形态（如 Button 的 4 种方案、IconButton 的 5 种风格、Listbox 的 4 种方案）时，**统一在 Fixture 页面顶部使用 `SegmentedControl` 进行就地平滑切换**；
-   - 顶部切换条采用 75% 磨砂底座，配备统一的 `.scheme-banner`（`color-mix(in srgb, var(--bg-panel) 70%, transparent)` + 12px 模糊 + 1px 环境边框 + `scheme-pill` 方案解析胶囊 + <code> 等宽技术参数），直观陈述几何圆角、动效参数、透明度比例与业务适用场景。
-3. **真实小说与工作区领域数据（Domain-Realistic Data）**：
-   - Fixture 数据**严禁使用 `Foo / Bar / Test 1` 等无意义占位符**；
-   - 必须使用与长篇小说创作、桌面写作工作区（NeuroBook）强相关的真实题材数据（如世界观设定集标签、出场人物档案与阵营状态、分卷章节大纲目录、电子书导出排版穿梭等）。
-4. **事件与采样驱动（`lab-event` & `rendered`）**：
-   - Fixture 必须通过 `emit('lab-event', name, payload)` 上报组件交互事件（如 `click`、`update:modelValue`、`change`）；
-   - 在组件挂载与场景切换时，必须通过 `nextTick(() => emit('rendered'))` 触发右侧检查器的 Token 采样刷新；
-   - 必须将核心可交互 DOM 节点绑定 `id="nb-lab-target"`，以便检查器准确定位并高亮目标节点。
-
-### 7.3 注册表（`registry.ts`）声明规范
-每个组件在 `registry.ts` 的 `labComponents` 中必须声明：
-- `id`：kebab-case 唯一标识；
-- `label`：英文原语名称；
-- `labelZh`：中文规范全名；
-- `group`：所属分类（`控制` | `表单` | `导航` | `布局` | `显示` | `反馈`）；
-- `description`：一句话说明组件的定位与写作场景；
-- `scenes`：至少覆盖 `default` 与 `disabled` 场景，多态组件可声明对应专属场景；
-- `controls`：声明右侧控制面板支持的动态调优项（`type: "boolean" | "select" | "text" | "number"`）；
-- `targetSelector`：目标选择器（如 `"#nb-lab-target"`）；
-- `events`：监听的可观察事件列表。
+1. **登记位置**：`packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/` 按组件目录分文件（控制、展示、反馈、表单、布局）。只需绑定输入与记录事件的用 `defineSubjectFixture`，需要组合演示的手写 fixture 并用 `defineLabFixture<typeof C>`。
+2. **一个场景一个组件**：场景表达组件的一种状态或输入组合，不在一个场景里平铺多套设计方案；设计实验不是组件合同。
+3. **输入与事件**：可编辑的值写进场景的 `props`、`model`、`slots` 三层，受控值进 `model` 层由组件回写；要记录的事件显式声明；组件根上的 `data-lab-subject` 供检查器定位，根是片段或传送门的组件不加。
+4. **领域数据**：场景数据用与长篇写作相关的真实题材（作品、分卷章节、人物、设定条目），不用 `Foo`、`Test 1` 这类占位。
+5. **截图回归**：新增或修改组件后用 `bun run lab:shot`（在 `packages/neuro-book`）按手机与宽屏、深浅配色出截图与溢出报告。
 
 ## 8. 全库组件工业级微物理与动效工程规范（Frontend UI Engineering 落地标准）
 
@@ -417,9 +403,6 @@
    - `Tabs`, `SegmentedControl`, `Dropdown`, `Menubar`, `Tree`, `Listbox`, `Combobox` 等复合组件全面支持 `ArrowUp/Down/Left/Right`, `Home/End`, `Enter/Space`, `Escape` 键盘导航并联动焦点环（`.nb-ui-focus-ring` / `--focus-ring`）。
    - `Tree` 的 `modelValue` 对外始终使用节点 `id`：单选为 `string | undefined`，多选为 `string[]`；组件内部负责把 id 映射为 Reka TreeRoot 所需的节点对象，并把更新事件映射回 id，调用方不得持有原语内部节点对象。
    - `Tree` 的选中行使用整行淡强调底、强调文字与中等字重，不使用常驻左边框或指示条；层级只由缩进与展开箭头表达，焦点继续由 `.nb-ui-focus-ring` 独立表达。
-5. **Component Lab 5 方案多态体系（5-Scheme Lab Matrix）**：
-   - 全库 47 个组件 Fixture 均配备完整的 5 方案推演矩阵（macOS 经典、现代极简、悬浮微晶发光、精工工控刻度、实底高反差），并在页面顶部集成 `SegmentedControl` 即时切换与 `.scheme-banner` 设计解析胶囊；
-   - 严格绑定真实长篇小说写作与 NeuroBook 领域数据，保证组件在真实界面场景下的层级与材质一致性。
 
 ## 9. Dropdown 与 Popover 浮层 Surface 黄金标准规范（FormSelect 唯一样式源）
 
@@ -433,6 +416,7 @@
    - 统一消费 `backdrop-filter: blur(8px) saturate(130%) brightness(1.0);`，避免大半径模糊与复杂 SVG 折射引发的边缘文字走样或错位。
 3. **4 阶立体微反光环境柔影**：
    - 统一消费 `--elevation-popover`：`0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent)`，外发散柔影与 1px 微反光边缘兼备。
+   - 菜单与下拉（`.nb-ui-menu-surface`）改读 `--elevation-menu`，缺省等于 `--elevation-popover`；主题可以给菜单单独收小投影（nbook：一圈 0.5px 细边加一层 4px 偏移、14px 模糊的近投影，圆角 `--radius-menu` 为 8px，与菜单按钮相配）。
 4. **单一样式源与组合子（`useDropdownFloating` / `useDropdownSurfaceStyle`）**：
    - 任何涉及下拉与浮层的组件，严禁在模板中重复书写内联样式，统一调用 `useDropdownFloating` 或 `useDropdownSurfaceStyle`，自动注入标准 `popoverClasses`、`popoverStyle`、同心圆角视口与避让 Trigger 发光圈的 `side-offset: 7`。
 
@@ -440,13 +424,14 @@
 
 本节收录在真实开发与实测推演中沉淀出的检查项（不设假想项，可被自动化脚本拦截的条目由 CI 与测试负责；本节仅收录真实踩坑沉淀、且自动化工具难以静态拦截的体验与行为判据，随实践动态演进）：
 
-- [ ] **浮层高亮材质**：玻璃浮层（`.nb-ui-popover-surface`）内的项高亮消费 `--overlay-item-active`（半透明 tint），不使用实色 `--bg-hover`，避免在通透玻璃上产生实色色块（设计语言 §五）；
-- [ ] **同心圆角防负值**：所有内圆角推导公式包裹 `max(2px, calc(...))`，防止负半径导致浏览器丢弃属性突变直角（设计语言 §三）；
-- [ ] **单层滚动权**：页面最外层容器持有滚动权，内部子组件不滥用 `overflow-y: auto` 产生双层嵌套滚动；动态流式列表声明 `scrollbar-gutter: stable` 防 1px 抖动（§4.2 第 15 条）；
-- [ ] **浮层关闭时序**：浮层关闭与状态交接依赖原语真实的 `closed` 事件或过渡钩子，不使用固定 `setTimeout` 毫秒数推断（设计语言 §七第 6 条）；
-- [ ] **去框化流式卡片（去三段式盒子）**：展示卡片与留痕面板严禁采用“独立背景横幅头 + 内容大框 + 底部提示横幅”的三段式机械堆叠；区段之间消费 `--divider` 发丝线或 `Separator`，标题与正文同字号（13px）依靠字重和色阶区分，严禁大面积整卡漫铺刺眼警示黄底（设计语言 §三、§五）；
+- [ ] **浮层高亮材质**：玻璃浮层（`.nb-ui-popover-surface`）内的项高亮消费 `--overlay-item-active`（半透明 tint），不使用实色 `--bg-hover`，避免在通透玻璃上产生实色色块（设计语言「五、颜色角色」）；
+- [ ] **同心圆角防负值**：所有内圆角推导公式包裹 `max(2px, calc(...))`，防止负半径导致浏览器丢弃属性突变直角（设计语言「三、几何」）；
+- [ ] **单层滚动权**：页面最外层容器持有滚动权，内部子组件不滥用 `overflow-y: auto` 产生双层嵌套滚动；动态流式列表声明 `scrollbar-gutter: stable` 防 1px 抖动（4.2 节第 15 条 `ScrollArea`）；
+- [ ] **浮层关闭时序**：浮层关闭与状态交接依赖原语真实的 `closed` 事件或过渡钩子，不使用固定 `setTimeout` 毫秒数推断（设计语言「七、动效」浮层编排的第 6 条）；
+- [ ] **去框化流式卡片（去三段式盒子）**：展示卡片与留痕面板严禁采用“独立背景横幅头 + 内容大框 + 底部提示横幅”的三段式机械堆叠；区段之间消费 `--divider` 发丝线或 `Separator`，标题与正文同字号（13px）依靠字重和色阶区分，严禁大面积整卡漫铺刺眼警示黄底（设计语言「三、几何」「五、颜色角色」）；
 - [ ] **Tab 滚动权按页隔离**：多 Tab 容器严禁由外层统一声明 `overflow-y: auto`；各 Tab 独立控制滚动，固定高度的 Tab 必须显式声明 `overflow-hidden`，防止微溢出触发误滚动；
 - [ ] **Agent 交互与工具调用留痕契约**：前端工具卡片必须对照底层真实 Schema（`server/agent/tools/`），严禁凭空臆造字段；严格按底层数据形状区分开放式与选项式提问；交互决策留痕组件应声明为 `mode: "message"` 顶级消息卡片，杜绝嵌套在普通执行工具的 `mode: "block"` 折叠灰盒内产生外壳套内盒；
-- [ ] **同类交互状态一致与外扩阴影防裁切**：自定义交互元素与基础控件表达同类状态（hover / focus / active / selected）时，复用同一基座类或状态 token，不手写近似的局部边框或阴影；外层带 `overflow` 裁切时，确认外扩阴影（如焦点光环）留有内边距冗余（必要时配合等量负外边距），不被容器边缘切边；
+- [ ] **同类交互状态一致与外扩阴影防裁切**：自定义交互元素与基础控件表达同类状态（hover / focus / active / selected）时，复用同一基座类或状态 token，不手写近似的局部边框或阴影；外层带 `overflow` 裁切时，确认外扩阴影（如焦点光环）留有内边距冗余，不被容器边缘切边；填满所在条、四周没有余地的控件改用内嵌焦点线；只为动画裁切的容器只在动画进行中裁（见 design-language 坑 48），不用“内边距加等量负外边距”把裁切盒往外放（外框会比父容器宽，在可横向滚动的父容器里多出滚动距离）；工具条、表单行这类只有一行控件高的容器不设 `overflow: hidden`（不横向滚动靠换行与收缩），余量按主题 `--focus-ring` 的实色部分算（不偏移那几圈的扩散量，nbook、macos 是 3.5px；带偏移的模糊光切掉一截看不出，不算）；`lab:shot` 机检这一条（按样式表里的焦点规则找会画焦点环的元素，环画在外框上时按外框算；离裁切祖先的边比实色部分近就报）；
+- [ ] **测量层的复本只复刻尺寸**：为了量宽度而放在不可见测量层里的复本（逐级让位、宽度适配用）不带 `role`、`id`，也不用被测试或样式引用的真元素类名（样式经测量层自己的类共用），否则文档里出现重复 `id`，按角色、类名或文字找真元素的地方会碰到复本；
 - [ ] **可点击卡片内嵌操作防按钮嵌套**：卡片同时具备“点击主区域选中/展开”与“行内局部操作按钮（`IconButton` / `Button`）”时，主触发区与操作按钮组并列为兄弟节点（或外层容器配键盘回车/空格监听），禁止在 `<button>` 内嵌套 `<button>`。
 

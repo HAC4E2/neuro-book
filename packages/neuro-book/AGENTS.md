@@ -1,25 +1,54 @@
-# packages/neuro-book 规则
+# NeuroBook 应用包
 
-仓库共享协作、安全、Git、临时目录、报告和通用 TypeScript 规则见 [`../../AGENTS.md`](../../AGENTS.md)；本文件只补充主应用包的项目专属合同。
+仓库共享规则见根 [`AGENTS.md`](../../AGENTS.md)；本文件只补充本包的约定。
 
-## 包内文档
+本包是 NeuroBook v2 的现行应用代码。设计依据：[NeuroBook v2：并排重建应用](../../docs/proposals/neuro-book-v2-rebuild.md)、[ADR 0023](../../docs/adr/0023-v2-frontend-backend-stack.md)。旧应用 `packages/neuro-book-legacy` 只作参照，不在其中修改代码；需要旧行为时读它，按 Spec 在本包重写；原样迁入的旧代码同样逐条对照 Spec 复核，不以“与旧实现一致”作为正确的依据。
 
-- 主应用专属文档位于 [`docs/`](docs/)：`docs/adr/` 架构决策、`docs/migrations/` 数据迁移、`docs/runbooks/` 操作手册、`docs/research/` 与 `docs/archived/` 非规范资料、`docs/specs/foundation/` 术语与 capability Spec、`docs/proposals/` 产品提案。
-- monorepo 级治理仍在根 [`docs/`](../../docs/)（specs 注册表、standards、testing、modules 边界正文与提案流程）；判断当前行为只依据根注册表登记的 `implemented` Spec。
-- 主应用交付配置归本包：`Dockerfile*`、`docker-compose*.yml`、`.env.docker.example`、`.env.example`、`.env.product`、`.env.typecheck`、`config.example.yaml` 与包级 `.gitignore`。Docker build context 仍由根 monorepo 提供，根 `.dockerignore` 是 context 过滤器，不是应用源码入口。
-- `.env` 与 `config.yaml` 是 State Root 的本机运行文件，不提交到源码包；Source Dev 默认把 State Root 放在平台用户数据目录，运行时 Workspace 为 State Root 下的 `workspace/`。checkout 根的 `assets/`、`workspace/` 只作为历史/用户数据隔离区，不得当作应用源码或通过启动 fallback 读取。
-- Vue 组件、composable 和 store 沿用现有函数式风格；主题颜色规则见「前端规范」。
-- 普通界面复用 `app/components/common` 与现有通知、Tooltip、可调整面板能力；对话框按「前端规范」选择 nb-ui `Dialog` / `DialogWindow`。
-- 前端 API 错误使用 `resolveApiErrorMessage()`；跨入口反馈使用 `useNotification()`。
-- 修改 UI 后按根规则选择聚焦测试，浏览器取证档位见 [UI 验收分档](../../docs/testing/README.md#ui-验收分档)，工具选择及自检与人工评测的授权边界见 [浏览器工具](../../docs/testing/README.md#浏览器工具)。
+## 目录约定
 
-## 前端规范
+- `src/manifest.ts`：产品清单，列出本应用加载的全部插件，是“加载了什么”的唯一入口；只引用各插件的 `plugin.ts` 描述。`src/development-manifest.ts` 是开发清单（Component Lab），只由后端开发入口 `src/server/development-main.ts`、项目子进程的开发入口 `src/project/development-main.ts` 与前端的 `src/web/development-plugins.ts` 引用，后者只在 `import.meta.env.DEV` 分支里动态加载；生产构建不含它们，`check:dist` 检查。
+- `src/server/`：后端宿主（进程入口、启动参数、停止来源与退出码、按清单装配插件，`src/server/projects/` 是项目管理：身份、登记表、项目子进程与租约）；`src/project/`：项目宿主（项目子进程的入口，建立 `project` 位置的运行实例，见 [`runtime.projects`](../../docs/specs/runtime/projects.md)）；`src/web/`：前端宿主（Vite 入口、浏览器宿主、根组件）。
+- `src/backend/`：服务端与项目子进程共用、不属于某个插件的后端工具（例如加锁替换文件 `locked-replace.ts`），可用 Node 与 Bun API；只由后端代码（宿主与插件的 `backend/`）引用，不引用插件。
+- `src/ui/`：宿主与插件共用的前端组件（同名 `.md` 文档并列，Lab 自动收录），只引用前端库、`ui/` 与 `shared/`；只属于某个插件的界面组件放在插件的 `web/components/`。
+- `src/shared/`：前后端宿主共用、与运行位置无关的代码：宿主之间的协议（例如浏览器引导的 TypeBox schema 与常量）、宿主提供给插件的能力的键（`host.ts`、`projects.ts`）、装配工具，以及各插件都要用的小工具（例如界面文本的中英两份 `localized-text.ts`）；不引用任何一侧的实现。插件自己的合同放在插件的 `shared/`。
+- `src/plugins/<插件>/`：一个插件一个目录，`plugin.ts` 为插件描述（id、版本与运行位置）。`backend/` 放后端代码，服务端（`server`，应用级，一个进程）与项目子进程（`project`，每个打开的项目一个）共用这份代码，一份定义里按运行位置各写一个入口；`web/` 放浏览器窗口（`browser`，每个窗口一个）的代码；`shared/` 放两端共用、与运行位置无关的代码（TypeBox 合同，以及不碰 DOM、Bun 与 Node API 的逻辑，例如命令表），其中 `shared/contracts.ts` 是对其它插件公开的合同。`web/` 不引用 `backend/`，反之亦然，只经 `shared/` 交换类型与 schema。
+- 插件之间只经内核的服务、贡献点与远程服务协作。运行时只引用对方的 `shared/contracts.ts`（服务键、远程合同、贡献点 id、schema、配置定义），类型可以 `import type`；服务键按服务 id 识别，同一 id 只在提供方的 `shared/contracts.ts` 定义一次，由 `src/architecture.test.ts` 检查。插件定义是常量，按代码所在的一侧导出（`backend/plugin.ts`、`web/plugin.ts`，两侧共用的放 `shared/plugin.ts`），没有工厂参数；要宿主的东西（状态根、项目目录、整页导航）就在入口的 `dependencies` 里依赖宿主能力，对别的插件的依赖同样写在那里（[ADR 0026](../../docs/adr/0026-plugin-definitions-as-constants.md)）。宿主（`src/server/`、`src/project/`、`src/web/`）是装配者，各有两张表：普通插件的定义表只能放常量，宿主适配器的工厂表只有诊断与 HTTP；新增宿主适配器要说明 ADR 0026 决策第 5 条的启动或停机依赖。测试插件（`testing/` 与测试文件里的）可以带参数。例外：Lab 的场景（`src/plugins/lab/web/fixtures/`）可以在运行时引用其它插件的 `web/` 与 `shared/`，用来挂载它们的组件、建场景自己的局部宿主；Lab 只在开发模式加载。
+- `examples/`：示例插件与场景测试，教第三方插件怎么写（目录、概念与阅读顺序见 [`examples/README.md`](examples/README.md)）。插件按 `src/plugins/` 的目录格式写，只经内核的公开入口与内置插件的 `shared/contracts.ts` 引用别处，同样由 `src/architecture.test.ts` 检查；场景经 `examples/testing/` 的场地装进真实的内置插件运行，随 `bun run test` 运行。产品代码不引用 `examples/`，产品清单不含示例插件。注释是教学材料，注释规则的例外见根 [`AGENTS.md`](../../AGENTS.md) 的“注释”。
+- 定义贡献点时规定贡献 id 的取法（例如插件 id、页面路径）：内核要求贡献 id 在同一贡献点内唯一，两个插件写同一个 id 时两条都被拒绝，不能让每个插件都写同一个固定 id。
+- 配置（随 t64 实现）：插件在描述（`plugin.ts`）的 `contributions` 里声明配置项，定义用 `defineSetting`（`nbook/shared/settings`）写在自己的 `shared/contracts.ts`；读写经 `nbook.settings` 的 `settingsKey`，所有已声明的项都可读、只写自己声明的项。合同见 [`settings.configuration`](../../docs/specs/settings/configuration.md)。
+- 命令（两端都可用）：插件向 `nbook.commands` 的贡献点 `commands.definitions` 提交，贡献 id 写命令 id（内置插件 `nbook.<域>.<动作>`，域取 [`workbench.commands`](../../docs/specs/workbench/commands.md) 的域词表，不是插件 id，不在词表里的贡献被拒绝；其它插件以自己的插件 id 开头）。命令随贡献方入口激活才进命令表，还没有按命令触发的激活事件，贡献命令的入口要启动即激活（`onStartup`）；要执行命令的入口在依赖里声明 `commandServiceKey`，按 id 执行。合同见 `src/plugins/commands/shared/contracts.ts` 与 [`workbench.commands`](../../docs/specs/workbench/commands.md)。
+- 跨目录导入用 `nbook/*`（映射到 `src/*`）；同一插件或同一宿主目录内用相对导入。
+- 前端不用全局 Pinia store；状态归插件所有，大块状态用浅层引用。
+- 后端 HTTP 用 Hono，校验与接口描述用 TypeBox，不引入 Nuxt 与 Zod。
+- 依赖：`dependencies` 只放后端进程导入的包（开发监督进程按其中的 workspace 包决定监视哪些源码目录）；只进前端构建的包（vue、vue-router、nb-ui、UnoCSS 等）放 `devDependencies`。两份产物都由打包器打包，这样分不影响运行。
 
-- 通用组件优先复用 `app/components/common`：`NotificationViewport`、`Tooltip` 和 `form/FormColorField`；模态对话框与非模态浮动窗口复用 `@notnotype/nb-ui/components` 的 `Dialog` / `DialogWindow`（`app/components/common/Dialog.vue` 只剩未迁移的调用点，不要再新增消费者）。
-- Novel IDE 普通界面颜色只消费 nb-ui 登记的主题变量（事实源见 [nb-ui UI 开发规范 §1](../nb-ui/docs/ui-development-spec.md#1-事实源)：配色变量在 `src/colorway/colorway-contract.ts`，token 名在 `src/theme/tokens.ts`），不新增 Tailwind 调色板或 `dark:` 变体；新增组件变量前确认现有变量无法表达，并同步登记到该事实源，覆盖 [`shared/theme/theme-axes.ts`](shared/theme/theme-axes.ts) 的 `productThemeIds` 登记的产品主题（当前 `nbook`、`macos`）。
-- 状态色使用 `warning`（草稿/待审/未保存）、`success`（完成/已同步）、`danger`（错误/删除/冲突）、`info`（运行中/引用/说明）和 `accent`（选中/当前/主操作）。内容、编辑器和 chip 分类色是例外，不按状态色重写。
-- World Engine 的 `--we-*` 只在 `app/styles/theme-vars.css` 的 `.world-engine-workbench-theme` 中映射；真实 Dialog 和 preview 使用该 class，不在局部样式反向覆盖全局变量。
-- `ReferenceChip.vue` 只输出类别语义 class，外观统一在 `app/styles/reference-chips.css`；不要在 TipTap 或业务组件重复定义。
-- 前端 API 错误使用 `resolveApiErrorMessage(error, fallback)`；跨入口、后台动作和完成后 Dialog 会关闭的反馈使用 `useNotification()`，当前表单可恢复的错误使用局部 `error` state。
-- 可调整面板统一使用 `app/composables/useResizablePanel.ts`，尺寸由宿主保存，组件通过 `update:width` / `update:height` 回传。
-- 用户可见文案面向第一次使用 NeuroBook 的普通作者，不出现内部类名、文件名、Task 或 Phase 编号。
+## 后端
+
+- 插件提供 HTTP 接口时，在后端入口向贡献点 `http.routes` 提交一个处理器（通常是 Hono 应用），贡献 id 写插件自己的 id，挂载在 `/api/<插件 id>/`；合同见 `src/plugins/http/shared/contracts.ts` 与 [`runtime.server-host`](../../docs/specs/runtime/server-host.md)。`/api/runtime/` 留给宿主。
+- 长连接（事件流）在处理器里经 `env.registerEventStream(close)` 登记，否则会拖住排空。
+- 记录诊断用 `@notnotype/nb-runtime/diagnostics` 的 `diagnosticsKey` 服务，不直接写文件或另建日志器。
+- 测试需要额外插件时经 `startServer({plugins})` 注入（见 `src/server/testing/`），产品代码不加测试分支。
+
+## 前端
+
+- 窗口启动、引导与失败页的合同见 [`runtime.browser-host`](../../docs/specs/runtime/browser-host.md)。插件的浏览器入口在 `src/web/plugins.ts` 的定义表登记；窗口只登记引导集合里出现的插件。页面经 `nbook.workbench` 的贡献点 `workbench.pages` 交出（贡献 id 写页面路径），路由归宿主（`src/web/router.ts`）。
+- 样式：UnoCSS（`uno.config.ts`）与 nb-ui 的预编译样式同时在场，引入顺序与 transform 类黑名单的原因见 `src/web/main.ts`、`uno.config.ts`；主题变量来自 nb-ui 主题包。
+- 浏览器基线：Chrome、Edge 119，Firefox 124，Safari 17.4（`vite.config.ts` 的 `BROWSER_TARGETS`）；不使用基线之外的浏览器 API。
+- 测试分两个运行器：纯 TS 模块、后端与窗口合同用 `bun test`；Vue 组件测试命名 `*.dom.test.ts`，由 Vitest 在 happy-dom 里运行（`vitest.config.ts` 沿用 Vite 配置，包内 `bunfig.toml` 让 `bun test` 跳过它们）。需要真实布局的交互（尺寸、拖放、滚动）走 Playwright（`e2e/`）。
+- `bun test` 不能导入 `.vue`：Bun 测试会导入的模块（例如工作台交出的根界面）用 `defineComponent` 与渲染函数写。
+- `vite.config.ts` 关闭了依赖发现、预构建清单写死（依赖发现进行中时 Vite 的 `close()` 不结算，开发命令停止时会卡住）；页面直接或经 nb-ui 用到新的第三方包，或已列入包的新子路径（例如 `typebox/compile`）时加进 `optimizeDeps.include`：漏列的 CommonJS 模块在开发模式加载失败，漏列的子路径不进预构建、首次加载按需打包，e2e 曾因此间歇失败。
+- Component Lab（[`ui.component-lab`](../../docs/specs/ui/component-lab.md)）是开发插件 `src/plugins/lab/`：新组件写同名 `.md` 就进索引，可挂载的组件在 `src/plugins/lab/web/fixtures/index.ts` 登记场景（场景登记门禁 `fixtures/index.dom.test.ts`）。
+
+## 命令
+
+```text
+bun run dev              # 开发模式：页面 http://127.0.0.1:4217/（RPC 4218、后端 4219；被占用时三个一起加 100），后端改动后有序重启；状态根缺省 .dev-state/
+bun run typecheck        # 类型检查：后端 tsc、前端 vue-tsc、组件测试与 e2e 的 vue-tsc
+bun run test             # bun test（合同测试，含真实子进程）后接 Vitest 组件测试
+bun run test:e2e         # 构建后用本机 Chrome 跑浏览器验收（Playwright 由 Node 运行）
+bun run build            # 打包后端到 dist/server、前端到 dist/web，最后 check:dist 确认产物不含开发插件与本机路径
+bun run smoke:server     # 打包后对产物运行进程级 smoke
+bun run lab:shot -- -c <组件> --url <开发页面地址>   # 对 Lab 场景截图并检查溢出（Node 运行，对着 bun run dev）
+bun run perf:files       # Files 的性能验收（files-explorer 验收 12）：生成 3000 个文件的样本、生产构建，本机 Chrome 逐项测；在参考机器上跑，浏览器部分由 Node 运行
+NBOOK_STATE_ROOT=<目录> bun run start   # 运行打包产物（同时提供页面）
+```

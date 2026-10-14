@@ -108,6 +108,6 @@ Reka UI 的 Select 原语负责 combobox/listbox 角色、键盘漫游、Escape/
 ## 隐藏通道理由
 
 - `state:local`：组件使用下拉浮层 composable 持有滚动条几何、滚动端点、拖拽状态与 ResizeObserver 观察结果。这些是本次浮层实例的临时呈现状态，组件销毁即丢失，不替代父组件的选中值。
-- `state:inject`：浮层样式通过 `NB_POPOVER_Z_INDEX` 可选读取 `DialogWindow` 的窗口层级，使窗口内下拉菜单压在窗口表面之上；未注入时回退到公共 popover 层级。FormField 的字段语义上下文也通过 `useFormFieldContext` 可选读取，但不读取业务 store。
+- `state:inject`：浮层样式通过 `NB_POPOVER_Z_INDEX` 可选读取 `Dialog` 的窗口层级，使窗口内下拉菜单压在窗口表面之上；未注入时回退到公共 popover 层级。FormField 的字段语义上下文也通过 `useFormFieldContext` 可选读取，但不读取业务 store。
 - `env:portal`：`SelectPortal` 将选项浮层移出触发器所在 stacking context，避免被表单或面板裁剪；组件不暴露自定义目标，目标与缺失目标行为遵循 Reka Portal。
 - `env:global`：拖动悬浮滚动条需要在手势期间向 `window` 注册 `mousemove`/`mouseup`，以便指针离开滑块后仍能完成拖动；结束或卸载时解除监听，不是常驻全局快捷键。

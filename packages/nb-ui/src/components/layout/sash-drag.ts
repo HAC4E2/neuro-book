@@ -237,39 +237,73 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
 
     if (usable) {
         // 收起判定只看理想尺寸与原始基线，不因中间吸附重新锚定：同一个鼠标位置永远对应同一个状态。
-        // 收起先于恢复判定，同帧让出的空间才能成为恢复容量的事实。
-        for (const index of [sashIndex, sashIndex + 1]) {
-            const panel = panels[index]!;
-            const policy = panel.collapse;
-            if (!policy || isCollapsed(index)) {
-                continue;
+        // 收起先于恢复判定，同帧让出的空间才能成为恢复容量的事实。两侧都可收起时，一侧的展开可能正是另一侧收起所缺的
+        // 吸收边界（面板从零拉出、同一帧把编辑器拖到零），所以两遍判定重复到不再变化：每个面板一帧里只会朝一个方向变一次，
+        // 最多两轮就稳定，结果不取决于这一位移是一帧到达还是分几帧到达。
+        const collapsePass = (): boolean => {
+            let changed = false;
+            for (const index of [sashIndex, sashIndex + 1]) {
+                const panel = panels[index]!;
+                const policy = panel.collapse;
+                if (!policy || isCollapsed(index)) {
+                    continue;
+                }
+                if (idealSizeOf(index) >= boundsOf(index).low - policy.collapseThreshold - EPSILON) {
+                    continue;
+                }
+                if (!boundsFit({index, collapsed: true})) {
+                    continue;
+                }
+                overrides[panel.id] = true;
+                changed = true;
             }
-            if (idealSizeOf(index) >= boundsOf(index).low - policy.collapseThreshold - EPSILON) {
-                continue;
+            return changed;
+        };
+        const expandPass = (): boolean => {
+            let changed = false;
+            for (const index of [sashIndex, sashIndex + 1]) {
+                const panel = panels[index]!;
+                const policy = panel.collapse;
+                if (!policy || !isCollapsed(index)) {
+                    continue;
+                }
+                const expandedBounds = boundsWith(panel, false);
+                const collapsedSize = Math.max(0, finite(policy.collapsedSize, 0));
+                if (idealSizeOf(index) < Math.max(expandedBounds.low, collapsedSize + policy.expandThreshold) - EPSILON) {
+                    continue;
+                }
+                const capacity = capacityFor(baseline, total, index, boundsOf);
+                if (capacity < expandedBounds.low - EPSILON) {
+                    continue;
+                }
+                overrides[panel.id] = false;
+                changed = true;
             }
-            if (!boundsFit({index, collapsed: true})) {
-                issues.push(`面板 ${panel.id} 收起后没有可吸收的边界，保持展开`);
-                continue;
+            return changed;
+        };
+        for (let round = 0; round < 3; round += 1) {
+            const collapsedNow = collapsePass();
+            const expandedNow = expandPass();
+            if (!collapsedNow && !expandedNow) {
+                break;
             }
-            overrides[panel.id] = true;
         }
+        // 稳定后仍想变却变不了的，给出原因（只报一次）。
         for (const index of [sashIndex, sashIndex + 1]) {
             const panel = panels[index]!;
             const policy = panel.collapse;
-            if (!policy || !isCollapsed(index)) {
+            if (!policy) {
                 continue;
             }
-            const expandedBounds = boundsWith(panel, false);
-            const collapsedSize = Math.max(0, finite(policy.collapsedSize, 0));
-            if (idealSizeOf(index) < Math.max(expandedBounds.low, collapsedSize + policy.expandThreshold) - EPSILON) {
-                continue;
+            if (!isCollapsed(index) && idealSizeOf(index) < boundsOf(index).low - policy.collapseThreshold - EPSILON) {
+                issues.push(`面板 ${panel.id} 收起后没有可吸收的边界，保持展开`);
+            } else if (isCollapsed(index)) {
+                const expandedBounds = boundsWith(panel, false);
+                const collapsedSize = Math.max(0, finite(policy.collapsedSize, 0));
+                if (idealSizeOf(index) >= Math.max(expandedBounds.low, collapsedSize + policy.expandThreshold) - EPSILON) {
+                    issues.push(`面板 ${panel.id} 的恢复空间不足（可用 ${Math.round(capacityFor(baseline, total, index, boundsOf))}px），保持收起`);
+                }
             }
-            const capacity = capacityFor(baseline, total, index, boundsOf);
-            if (capacity < expandedBounds.low - EPSILON) {
-                issues.push(`面板 ${panel.id} 的恢复空间不足（可用 ${Math.round(capacity)}px），保持收起`);
-                continue;
-            }
-            overrides[panel.id] = false;
         }
     }
 

@@ -76,7 +76,7 @@ Reka UI 的 Popover 原语负责浮层生命周期、定位、外部点击、Esc
 ## 隐藏通道理由
 
 - `state:local`：`isOpen` 只记录本次组件实例的浮层开关，不把临时 UI 状态扩散给父组件；区间值仍由 `modelValue` 明面控制。
-- `state:inject`：组件读取 `NB_POPOVER_Z_INDEX`，让 `DialogWindow` 内部的范围浮层按窗口层级叠放；未提供注入时回退到 `NB_Z_INDEX.popover`，不读取业务 store。
+- `state:inject`：组件读取 `NB_POPOVER_Z_INDEX`，让 `Dialog` 内部的范围浮层按窗口层级叠放；未提供注入时回退到 `NB_Z_INDEX.popover`，不读取业务 store。
 - `env:portal`：`PopoverPortal` 将范围浮层移出宿主局部 stacking context，避免被父容器裁剪；目标遵循 Reka UI `ConfigProvider.teleportTo`，未配置时默认为 `body`；缺失目标行为交给 Reka Portal，不自行创建或持久化目标。
 
 ## 已知偏差

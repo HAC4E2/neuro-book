@@ -1,0 +1,207 @@
+/**
+ * 一层的拥有者（docs/specs/settings/configuration.md 输出 4、5、9–14、18、19，“状态与转换”）：读文件、逐键校验、维护
+ * 层快照、串行处理重读与写入、监视外部修改。本实例的入口与别的实例（经远程服务）都经它写入，两条路一样按内核
+ * 填写的调用方身份核对声明者；用户编辑只经远程服务到达，核对调用方是不是拥有者自己的插件。
+ *
+ * 重读与写入在同一个串行队列里：较早开始的重读不会在写入之后发布旧内容。写入成功后立即按新文本发布，监视器随后
+ * 带回的同一内容比较后不再发布（输出 10）。
+ */
+
+import {randomUUID} from "node:crypto";
+
+
+import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
+import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
+
+import type {SettingDeclaration, SettingLayer, SettingsFailure} from "nbook/shared/settings";
+
+import {canonical, sameContent, userEditProblem, writeProblem} from "../shared/layers";
+import type {DeclaredSetting, LayerContent, LayerEdit, LayerProblem, LayerSnapshot, LayerWriteResult, WriteProblem} from "../shared/layers";
+import {readLayerFile, writeLayerFile} from "./layer-file";
+import {editLayerText, parseLayerText} from "./layer-text";
+import {watchLayer} from "./layer-watch";
+import type {LayerWatch} from "./layer-watch";
+
+/** 最后一次文件事件之后静止多久再重读（VS Code 的用户配置同样以 50 毫秒合并）。 */
+export const RELOAD_DELAY_MS = 50;
+
+export interface LayerOwnerOptions {
+    readonly path: string;
+    readonly layer: SettingLayer;
+    /** 每次重读与写入时取当前已接受的声明。 */
+    readonly declarations: () => ReadonlyMap<string, DeclaredSetting>;
+    readonly clock: RuntimeClock;
+    readonly diagnostics: DiagnosticsService;
+    /** 拥有这一层的插件（`nbook.settings`）：诊断记在它名下，用户编辑只接受它自己、没有经过代理的请求。 */
+    readonly source: string;
+    /** 写进层快照的文件路径（configuration.md 输出 23）；缺省时快照不带路径。 */
+    readonly shownPath?: string;
+}
+
+export type OwnerWriteResult = LayerWriteResult;
+
+export interface LayerOwner {
+    /** 第一次读完并开始监视后完成；之前 `snapshot()` 是空层。 */
+    readonly ready: Promise<void>;
+    snapshot(): LayerSnapshot;
+    /** 之后的每次发布调用一次；返回取消函数。 */
+    subscribe(listener: (snapshot: LayerSnapshot) => void): () => void;
+    /** 声明者的写入：只写调用方插件自己声明的项（输出 11）。 */
+    write(consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult>;
+    /** 用户编辑：写任何已声明项，调用方必须是 `source` 插件自己、没有经过代理（输出 19）。 */
+    userEdit(consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult>;
+    /** 拒绝新的读写，等已接纳的写入结算，关闭监视。幂等。 */
+    close(): Promise<void>;
+}
+
+export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
+    const boot = randomUUID();
+    let seq = 0;
+    const located = options.shownPath === undefined ? {} : {path: options.shownPath};
+    let current: LayerSnapshot = {status: "ok", revision: {boot, seq}, values: Object.freeze({}), problems: Object.freeze([]), ...located};
+    const listeners = new Set<(snapshot: LayerSnapshot) => void>();
+    let closed = false;
+    let closing: Promise<void> | null = null;
+    /** 已经记过诊断的被丢弃键（规范化文本）：同一份文件内容只记一次。 */
+    let reportedProblems = canonical([]);
+
+    const record = (level: "info" | "warn", event: string, message: string, data?: unknown, error?: unknown): void => {
+        options.diagnostics.record({level, event, message, data, error, source: {plugin: options.source}});
+    };
+
+    /** 队列里的任务不抛：意外异常记诊断，免得一个任务卡住后面的。 */
+    const enqueue = <T>(task: () => Promise<T>, fallback: T): Promise<T> => {
+        const run = tail.then(task).catch((error: unknown) => {
+            record("warn", "settings.layer.task-failed", "配置层的读写出错", {layer: options.layer}, error);
+            return fallback;
+        });
+        tail = run;
+        return run;
+    };
+
+    /** 内容变了才换修订号、发布；返回当前快照。 */
+    const publish = (next: LayerContent): LayerSnapshot => {
+        if (sameContent(next, current)) return current;
+        seq += 1;
+        current = Object.freeze({...next, ...located, revision: Object.freeze({boot, seq})});
+        for (const listener of [...listeners]) {
+            try {
+                listener(current);
+            } catch (error) {
+                record("warn", "settings.layer.listener-failed", "配置层的订阅出错", {layer: options.layer}, error);
+            }
+        }
+        return current;
+    };
+
+    /** 由文件文本算出下一份快照：无效时保留上一份有效内容；被丢弃的键同一份内容只记一次诊断。 */
+    const fromText = (text: string): LayerContent => {
+        const parsed = parseLayerText(text, keysOf(options.declarations()), options.layer);
+        if (parsed.status === "invalid") return {status: "invalid", values: current.values, problems: current.problems, detail: parsed.detail};
+        reportProblems(parsed.problems);
+        return {status: "ok", values: parsed.values, problems: parsed.problems};
+    };
+
+    const reportProblems = (problems: ReadonlyArray<LayerProblem>): void => {
+        const text = canonical(problems);
+        if (text === reportedProblems) return;
+        reportedProblems = text;
+        if (problems.length > 0) record("warn", "settings.layer.dropped", "配置文件里有键被丢弃", {layer: options.layer, problems});
+    };
+
+    const reload = async (): Promise<void> => {
+        if (closed) return;
+        const read = await readLayerFile(options.path);
+        const before = current;
+        const next: LayerContent = read.ok ? fromText(read.text) : {status: "invalid", values: current.values, problems: current.problems, detail: read.detail};
+        const after = publish(next);
+        if (after !== before) {
+            const changed = changedKeys(before.values, after.values);
+            if (after.status === "invalid" && before.status === "ok") record("warn", "settings.layer.invalid", "配置文件当前无效，保留上一份有效内容", {layer: options.layer, detail: after.status === "invalid" ? after.detail : ""});
+            if (changed.length > 0) record("info", "settings.layer.changed", "配置文件被外部修改", {layer: options.layer, keys: changed});
+        }
+    };
+
+    const report = (event: string, error: unknown): void => record("warn", event, "配置文件的读写或监视出错", {layer: options.layer}, error);
+    let watcher: LayerWatch | null = null;
+    const ready = (async () => {
+        // 先监视、再读：读之后才开始监视的话，中间的修改会漏掉。
+        watcher = watchLayer({path: options.path, clock: options.clock, delayMs: RELOAD_DELAY_MS, onChange: () => void enqueue(reload, undefined), report});
+        await watcher.started;
+        await reload();
+    })();
+    /** 串行队列的尾：第一次读完之前接纳的写入排在它后面。 */
+    let tail: Promise<unknown> = ready.catch(() => undefined);
+
+    const write = async (consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult> => {
+        const result = await admitAndWrite(key, edit, () => writeProblem(consumer.plugin, key, options.declarations().get(key), edit, options.layer));
+        record(result.ok ? "info" : "warn", "settings.write", "配置写入", {key, layer: options.layer, plugin: consumer.plugin, via: consumer.via?.plugin ?? null, code: result.ok ? "ok" : result.code});
+        return result;
+    };
+
+    const userEdit = async (consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult> => {
+        const result = await admitAndWrite(key, edit, () => {
+            // 用户编辑不核对声明者，调用方是这条路径唯一的授权：先于其它核对，别的调用方不论键与值一律 denied。
+            if (consumer.plugin !== options.source || consumer.via !== null) {
+                return {code: "denied", detail: `用户编辑只接受 ${options.source} 自己、没有经过代理的请求`};
+            }
+            return userEditProblem(key, options.declarations().get(key), edit, options.layer);
+        });
+        record(result.ok ? "info" : "warn", "settings.write", "配置写入（用户编辑）", {key, layer: options.layer, plugin: consumer.plugin, via: consumer.via?.plugin ?? null, code: result.ok ? "ok" : result.code, userEdit: true});
+        return result;
+    };
+
+    const admitAndWrite = (key: string, edit: LayerEdit, admission: () => WriteProblem | null): Promise<OwnerWriteResult> | OwnerWriteResult => {
+        if (closed) return {ok: false, code: "unavailable", detail: "配置层的拥有者已停止"};
+        const problem = admission();
+        if (problem !== null) return {ok: false, ...problem};
+        // 核对通过即接纳：同步排进队列，之后的停止会等它走完（“时序与寿命”第 4 条）。
+        return enqueue(async (): Promise<OwnerWriteResult> => {
+            const written = await writeLayerFile(options.path, (text) => {
+                // 以磁盘上的当前文本为准：层快照可能还没跟上刚修好或刚改坏的文件。
+                const parsed = parseLayerText(text, keysOf(options.declarations()), options.layer);
+                if (parsed.status === "invalid") return {ok: false, code: "layer-invalid", detail: `配置文件当前无效：${parsed.detail}`};
+                const edited = editLayerText(text, key, edit);
+                return edited.ok ? edited : {ok: false, code: "write-failed", detail: edited.detail};
+            }, report);
+            if (!written.ok) {
+                // 写入前读到的文件可能与快照不同（例如刚被改坏）：按它更新快照，免得别处还以为能写。
+                if (written.code === "layer-invalid") await reload();
+                return {ok: false, code: written.code as SettingsFailure, detail: written.detail};
+            }
+            return {ok: true, snapshot: publish(fromText(written.text))};
+        }, {ok: false, code: "write-failed", detail: "配置写入出错"});
+    };
+
+    return {
+        ready,
+        snapshot: () => current,
+        subscribe: (listener) => {
+            listeners.add(listener);
+            return () => {
+                listeners.delete(listener);
+            };
+        },
+        write,
+        userEdit,
+        close: () => {
+            closing ??= (async () => {
+                closed = true;
+                watcher?.close();
+                listeners.clear();
+                await tail;
+            })();
+            return closing;
+        },
+    };
+}
+
+function keysOf(declarations: ReadonlyMap<string, DeclaredSetting>): ReadonlyMap<string, SettingDeclaration> {
+    return new Map([...declarations].map(([key, declared]) => [key, declared.declaration]));
+}
+
+function changedKeys(before: Readonly<Record<string, unknown>>, after: Readonly<Record<string, unknown>>): string[] {
+    const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    return [...keys].filter((key) => canonical(before[key]) !== canonical(after[key])).sort();
+}

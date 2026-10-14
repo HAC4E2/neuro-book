@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {inject} from "vue";
+import {inject, ref, watch} from "vue";
 import {
     TooltipContent,
     TooltipPortal,
@@ -9,9 +9,8 @@ import {
 } from "reka-ui";
 import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 
-/** 窗口内的浮层跟随窗口层级（由 DialogWindow 注入）；未被窗口承载时回退到普通页面层级。 */
+/** 对话框或浮动窗口里的浮层跟随它们的层级（由 Dialog 注入）；不在里面时回退到普通页面层级。 */
 const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
-
 
 // 悬停提示：hover 延迟显示、focus 即时显示、click 不打断已显示的提示、Esc 关闭。
 // 定位与碰撞翻转交给 reka Popper，不再自己算视口边界。
@@ -30,11 +29,24 @@ const props = withDefaults(defineProps<{
     delay: 300,
     disabled: false,
 });
+
+/*
+ * 开合由这里受控：reka 的 `disabled` 只挡住新的悬停，不关已经开着的提示，也不撤悬停时已经排好的延时打开。
+ * 点一下触发器把它变成禁用（例如打开了它旁边的面板）时，提示会在延时到点后照样冒出来，压在面板上面接走 Esc。
+ */
+const open = ref(false);
+watch(() => props.disabled, (disabled) => {
+    if (disabled) open.value = false;
+});
+
+function onOpenChange(value: boolean): void {
+    open.value = value && !props.disabled;
+}
 </script>
 
 <template>
     <TooltipProvider :delay-duration="props.delay">
-        <TooltipRoot :delay-duration="props.delay" :disabled="props.disabled" :disable-closing-trigger="true">
+        <TooltipRoot :open="open" :delay-duration="props.delay" :disabled="props.disabled" :disable-closing-trigger="true" @update:open="onOpenChange">
             <TooltipTrigger as-child>
                 <slot />
             </TooltipTrigger>

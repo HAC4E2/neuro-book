@@ -1,11 +1,21 @@
+---
+schema: nbook.proposal/v1
+status: draft
+created: 2026-09-15
+decided: null
+supersedes: []
+superseded-by: null
+specs: []
+adrs: []
+---
+
 # Storage 跨设备同步的后续设计
 
-- 状态：draft
 - 日期：2026-09-15
 - 更新：2026-09-16；本地持久化已移入获批 Spec，本提案只保留跨独立 data 的在线同步未决项
 - 已确定的架构边界：[storage.boundaries](../specs/storage/boundaries.md)
 - 已确定的本地行为：[storage.persistence](../specs/storage/persistence.md)
-- 取舍依据：[ADR 0021](../../packages/neuro-book/docs/adr/0021-local-storage-persistence.md)
+- 取舍依据：[ADR 0021](../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)
 
 ## 问题
 

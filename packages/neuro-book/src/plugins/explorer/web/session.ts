@@ -1,0 +1,176 @@
+/**
+ * 一个窗口里的资源管理器（docs/specs/workbench/files-explorer.md 的“新应用的插件、命令与界面”）：入口激活时建立，活到
+ * 入口停止。入口激活时就打开偏好记录（`prepare`），让首读与工作台的挂载同时进行；控制器仍在视图第一次挂上、且偏好首读
+ * 结束（读到或失败）之后才建，缺省值因此不会覆盖记录；之后视图停放、移动、渲染重试只解绑再绑定同一个控制器。命令经它
+ * 找到控制器与当前挂着的视图。
+ */
+
+import {computed, shallowRef, watch} from "@vue/reactivity";
+import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
+
+import type {CommandService} from "nbook/plugins/commands/shared/contracts";
+import type {DocumentCoordinator} from "nbook/plugins/editor/shared/contracts";
+import {parseResource} from "nbook/plugins/files/shared/contracts";
+import type {FilesService, Scheme} from "nbook/plugins/files/shared/contracts";
+import {fieldProblem} from "nbook/shared/store/problem";
+import type {FieldProblem} from "nbook/shared/store/problem";
+
+import {createExplorerController} from "./controller";
+import type {ExplorerController} from "./controller";
+import {EXPANDED_LIMIT, limitBranches} from "./preferences";
+import type {ExplorerStore} from "./preferences";
+import {addressOf, resourceOf} from "./tree/address";
+
+/** 当前挂着的视图实例：命令与确认按它的代次判断回调是否过期。 */
+export interface AttachedView {
+    readonly id: string;
+    readonly generation: number;
+    readonly visible: Readonly<Ref<boolean>>;
+}
+
+export interface ExplorerSessionOptions {
+    readonly files: FilesService;
+    readonly commands: Pick<CommandService, "execute">;
+    /** 编辑器的文档协调；编辑器没有加载时不给。 */
+    readonly documents?: DocumentCoordinator;
+    readonly bound: boolean;
+    /** 第一次挂上视图时调用：打开偏好记录。 */
+    readonly createStore: () => ExplorerStore;
+    readonly report: (error: unknown) => void;
+}
+
+export interface ExplorerSession {
+    readonly controller: Readonly<ShallowRef<ExplorerController | null>>;
+    readonly store: Readonly<ShallowRef<ExplorerStore | null>>;
+    readonly view: Readonly<ShallowRef<AttachedView | null>>;
+    /** 偏好记录此刻的问题（读不到、损坏、没保存上），给视图显示一条提示；没有为 null。 */
+    readonly problem: ComputedRef<FieldProblem | null>;
+    /** 打开偏好记录、开始首读；不建控制器。入口激活时调用，重复调用无事。 */
+    prepare(): void;
+    attach(view: AttachedView): () => void;
+    setShowManifests(show: boolean): void;
+    /** 偏好提示上的“重试 / 重新读取”与“放弃”：之后树与显示按记录此刻的值。 */
+    retryPreferences(): Promise<void>;
+    discardPreferences(): void;
+    dispose(): void;
+}
+
+export function createExplorerSession(options: ExplorerSessionOptions): ExplorerSession {
+    const controller = shallowRef<ExplorerController | null>(null);
+    const store = shallowRef<ExplorerStore | null>(null);
+    const view = shallowRef<AttachedView | null>(null);
+    let stopWaiting: (() => void) | null = null;
+    let disposed = false;
+    /** 视图挂上过：控制器在这之后才建（Spec：入口在视图第一次挂上时建控制器）。 */
+    const attachedOnce = shallowRef(false);
+
+    const fieldsOf = (current: ExplorerStore) => [current.state.preferences, ...(current.state.expanded === null ? [] : [current.state.expanded]), current.state.userExpanded];
+
+    /**
+     * 记录 schema 已挡住结构上非法的路径；剩下字符数没超、按 UTF-8 字节超出上限的，在这里丢掉并报告，不让它在建控制器时
+     * 抛出、把视图停在加载占位上。
+     */
+    const expandedOf = (current: ExplorerStore): string[] => {
+        const addresses: string[] = [];
+        const take = (scheme: Scheme, paths: ReadonlyArray<string>): void => {
+            for (const path of paths) {
+                const address = addressOf(scheme, path);
+                const parsed = parseResource(address);
+                if (parsed.ok) addresses.push(address);
+                else options.report(new RangeError(`展开记录里的 ${parsed.detail}，已忽略`));
+            }
+        };
+        take("project", current.state.expanded?.display.paths ?? []);
+        take("user", current.state.userExpanded.display.paths);
+        return addresses;
+    };
+    /**
+     * 控制器的显示与展开是记录的一份拷贝，平时由控制器改、再存回记录；重读与放弃反过来改了记录的显示值，要拷回控制器，
+     * 否则提示消失了、树却还是被放弃的样子，之后的保存又把它带回去。拷回时展开集合与记录相同，不会再触发保存。
+     */
+    const adopt = (): void => {
+        const current = store.value;
+        const active = controller.value;
+        if (current === null || active === null) return;
+        active.setShowManifests(current.state.preferences.display.showManifests);
+        active.model.setExpanded(expandedOf(current));
+    };
+
+    const start = (current: ExplorerStore): void => {
+        const {state, actions} = current;
+        const initial = expandedOf(current);
+        controller.value = createExplorerController({
+            files: options.files,
+            ...(options.documents === undefined ? {} : {documents: options.documents}),
+            commands: options.commands,
+            bound: options.bound,
+            expanded: initial,
+            showManifests: state.preferences.display.showManifests,
+            onExpandedChange: (expanded) => {
+                const paths = (scheme: "project" | "user"): string[] => limitBranches([...expanded].filter((address) => resourceOf(address).scheme === scheme), EXPANDED_LIMIT).map((address) => resourceOf(address).path);
+                actions.saveExpanded("expanded", paths("project"));
+                actions.saveExpanded("userExpanded", paths("user"));
+            },
+            report: options.report,
+        });
+    };
+
+    const acquire = (): void => {
+        if (store.value !== null) return;
+        const current = options.createStore();
+        store.value = current;
+        // 首读结束（读到或失败）之前不建控制器：缺省值不能先显示、再被当成修改保存。
+        const settled = computed(() => attachedOnce.value && fieldsOf(current).every((field) => field.ready || field.failure !== null));
+        stopWaiting = watch(settled, (done) => {
+            if (!done || controller.value !== null || disposed) return;
+            stopWaiting?.();
+            stopWaiting = null;
+            start(current);
+        }, {immediate: true});
+    };
+
+    return {
+        controller,
+        store,
+        view,
+        problem: computed(() => {
+            const current = store.value;
+            if (current === null) return null;
+            for (const field of fieldsOf(current)) {
+                const problem = fieldProblem(field);
+                if (problem !== null) return problem;
+            }
+            return null;
+        }),
+        prepare: acquire,
+        attach: (attached) => {
+            acquire();
+            attachedOnce.value = true;
+            view.value = attached;
+            return () => {
+                if (view.value === attached) view.value = null;
+            };
+        },
+        setShowManifests: (show) => {
+            const current = controller.value;
+            if (current === null) return;
+            current.setShowManifests(show);
+            store.value?.actions.setShowManifests(show);
+        },
+        retryPreferences: async () => {
+            await store.value?.actions.retry();
+            adopt();
+        },
+        discardPreferences: () => {
+            store.value?.actions.discard();
+            adopt();
+        },
+        dispose: () => {
+            disposed = true;
+            stopWaiting?.();
+            controller.value?.dispose();
+            controller.value = null;
+            view.value = null;
+        },
+    };
+}

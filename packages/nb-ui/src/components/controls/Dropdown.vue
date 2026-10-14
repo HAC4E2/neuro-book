@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import {computed, provide, ref} from "vue";
+import {computed, nextTick, provide, ref, watch} from "vue";
 import {
     DropdownMenuContent,
+    DropdownMenuItem,
     DropdownMenuPortal,
     DropdownMenuRoot,
     DropdownMenuTrigger,
@@ -18,7 +19,9 @@ import type {DropdownItem} from "./dropdown.types";
  * 支持 4px 悬浮 macOS 胶囊滚动条与自适应双向渐隐。
  *
  * 结构覆盖平面项、分隔线、任意层级子菜单与受控 radio / checkbox；
- * 键盘漫游、子菜单展开与关闭后焦点归还全部由 Reka 菜单原语承担，组件不自己排焦点。
+ * 一级菜单的键盘漫游（上下键、Home、End、首字母、跳过禁用项）与关闭后焦点归还由 Reka 菜单原语承担。级联面板是手工
+ * 画的（在 Reka 的菜单内容之外，接不到它的菜单上下文）：键盘漫游、展开与收起由这里处理，面板里的指针与焦点也不算
+ * “点了外部”，否则按下指针时菜单先关、点击落空。
  */
 
 const props = withDefaults(defineProps<{
@@ -36,6 +39,8 @@ const props = withDefaults(defineProps<{
     open?: boolean;
     /** 浮层内容原生属性透传（用于 data-xxx 等属性） */
     contentProps?: Record<string, unknown>;
+    /** 条目文字允许换行：菜单最宽 320px，长文字完整显示；缺省单行截断。 */
+    wrap?: boolean;
 }>(), {
     menuClass: undefined,
     menuMaxHeight: undefined,
@@ -48,6 +53,7 @@ const props = withDefaults(defineProps<{
     // 显式 undefined 默认值：Boolean 档缺省会被 Vue 转成 false，那样就永远拿不到「未受控」这一档
     open: undefined,
     contentProps: () => ({}),
+    wrap: false,
 });
 
 const emit = defineEmits<{
@@ -56,8 +62,13 @@ const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
 }>();
 
+/** 非受控时由这里持有展开态：级联面板里选中一项后要能把整个菜单关掉（那不是 Reka 的菜单项，它不会自己关）。 */
+const ownOpen = ref(false);
+const isOpen = computed(() => props.open ?? ownOpen.value);
+
 function handleOpenChange(value: boolean): void {
     if (!value) cascade.reset();
+    ownOpen.value = value;
     emit("update:open", value);
 }
 
@@ -66,6 +77,79 @@ function handleSelect(item: DropdownItem): void {
     if (item.disabled) return;
     emit("select", item.value);
 }
+
+/** 级联面板里的选中：执行后关掉整个菜单，焦点由 Reka 还给触发器。 */
+function handleCascadeSelect(item: DropdownItem): void {
+    if (item.disabled) return;
+    handleSelect(item);
+    handleOpenChange(false);
+}
+
+/** 指针或焦点进了级联面板：在 Reka 看来是菜单内容之外，但它属于这个菜单。 */
+function keepOpenForCascade(event: Event): void {
+    const target = (event as CustomEvent<{originalEvent?: Event}>).detail?.originalEvent?.target ?? event.target;
+    if (target instanceof Node && cascade.panels.value.some((panel) => panel?.contains(target) === true)) event.preventDefault();
+}
+
+/** 一级里可用的项，按显示顺序。 */
+function itemsIn(container: Element | null | undefined): HTMLElement[] {
+    return container === null || container === undefined ? [] : [...container.querySelectorAll<HTMLElement>(":scope > [role^='menuitem']:not([disabled])")];
+}
+
+/** 键盘展开了子菜单：它出现后把焦点放到它的第一项。 */
+let focusNewLevel = false;
+
+/** 一级菜单（Reka 内容）里，键盘在父项上展开子菜单（右方向键、Enter、空格）：焦点跟进新的一级。 */
+function onContentKeydown(event: KeyboardEvent): void {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.getAttribute("aria-haspopup") === "menu" && ["ArrowRight", "Enter", " "].includes(event.key)) focusNewLevel = true;
+}
+
+/** 级联面板里的键盘：上下、Home、End 在本级可用项之间移动；右方向键展开；左方向键收起本级、回到展开它的那一项。 */
+function onLevelKeydown(depth: number, event: KeyboardEvent): void {
+    const target = event.target as HTMLElement;
+    const items = itemsIn(cascade.panels.value[depth]?.querySelector(".nb-menu-level-content"));
+    const index = items.indexOf(target);
+    if (index < 0) return;
+    const move = (next: HTMLElement | undefined): void => {
+        event.preventDefault();
+        next?.focus();
+    };
+    switch (event.key) {
+        case "ArrowDown":
+            move(items[(index + 1) % items.length]);
+            return;
+        case "ArrowUp":
+            move(items[(index - 1 + items.length) % items.length]);
+            return;
+        case "Home":
+            move(items[0]);
+            return;
+        case "End":
+            move(items[items.length - 1]);
+            return;
+        case "ArrowRight":
+        case "Enter":
+        case " ":
+            if (target.getAttribute("aria-haspopup") === "menu") focusNewLevel = true;
+            return;
+        case "ArrowLeft": {
+            const parent = depth === 0 ? contentEl.value : cascade.panels.value[depth - 1]?.querySelector(".nb-menu-level-content");
+            const trigger = parent?.querySelector<HTMLElement>("[aria-expanded='true']") ?? null;
+            event.preventDefault();
+            if (trigger !== null) cascade.schedule(null, trigger, depth, true, false);
+            trigger?.focus();
+            return;
+        }
+    }
+}
+
+const contentEl = ref<HTMLElement | null>(null);
+function setContentRef(element: unknown): void {
+    const node = element && typeof element === "object" && "$el" in element ? (element as {$el?: unknown}).$el : element;
+    contentEl.value = node instanceof HTMLElement ? node : null;
+}
+
 
 const triggerRef = ref<HTMLElement | null>(null);
 function setTriggerRef(element: unknown): void {
@@ -106,13 +190,13 @@ const {
     explicitMaxHeight: computed(() => props.menuMaxHeight),
     maxHeightLimit: computed(() => props.menuMaxHeight && !isNaN(parseInt(props.menuMaxHeight, 10)) ? parseInt(props.menuMaxHeight, 10) : undefined),
 });
-const resolvedMenuClass = computed(() => props.menuClass ?? (props.compact ? "min-w-[160px]" : "min-w-[200px]"));
+const resolvedMenuClass = computed(() => [props.menuClass ?? (props.compact ? "min-w-[160px]" : "min-w-[200px]"), props.wrap ? "max-w-[320px]" : ""]);
 
 
 
 
 /** 项级几何：与滚动视口同心贴边，密度随 compact 档切换。 */
-const itemBaseClass = "nb-ui-popover-item flex flex-nowrap whitespace-nowrap w-full items-center justify-between text-left outline-none cursor-pointer select-none transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] motion-reduce:transition-none data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed data-[state=open]:bg-[var(--overlay-item-active)]";
+const itemBaseClass = "nb-ui-popover-item flex flex-nowrap w-full justify-between text-left outline-none cursor-pointer select-none transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] motion-reduce:transition-none data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed data-[state=open]:bg-[var(--overlay-item-active)]";
 
 function itemClass(item: DropdownItem): string {
     if (item.tone === "danger") {
@@ -125,11 +209,12 @@ function itemClass(item: DropdownItem): string {
 }
 
 function itemClassList(item: DropdownItem): (string | Record<string, boolean>)[] {
+    // 换行时高度随内容，上下内边距补出单行时的高度；不换行时固定高度、单行截断。
+    const height = props.wrap ? (props.compact ? "min-h-[24px] py-1 whitespace-normal items-start" : "min-h-[var(--control-h-sm)] py-1.5 whitespace-normal items-start") : (props.compact ? "h-[24px] whitespace-nowrap items-center" : "h-[var(--control-h-sm)] whitespace-nowrap items-center");
     return [
         itemBaseClass,
-        props.compact
-            ? "h-[24px] px-2 gap-2 mb-0.5 last:mb-0 text-[var(--text-xs)]"
-            : "h-[var(--control-h-sm)] px-2.5 gap-2.5 mb-0.5 last:mb-0 text-xs",
+        height,
+        props.compact ? "px-2 gap-2 mb-0.5 last:mb-0 text-[length:var(--text-xs)]" : "px-2.5 gap-2.5 mb-0.5 last:mb-0 text-xs",
         itemClass(item),
     ];
 }
@@ -147,16 +232,24 @@ warnMissingRadioGroup(props.items);
 function scheduleSubmenu(item: DropdownItem | null, trigger: HTMLElement, depth = 0, immediate = false): void {
     cascade.schedule(item, trigger, depth, immediate, Boolean(item?.children?.length));
 }
+
+watch(() => cascade.levels.value.length, async (length, previous) => {
+    if (!focusNewLevel || length <= (previous ?? 0)) return;
+    focusNewLevel = false;
+    await nextTick();
+    itemsIn(cascade.panels.value[length - 1]?.querySelector(".nb-menu-level-content"))[0]?.focus();
+});
 </script>
 
 <template>
-    <DropdownMenuRoot :modal="false" :open="props.open" @update:open="handleOpenChange">
+    <DropdownMenuRoot :modal="false" :open="isOpen" @update:open="handleOpenChange">
         <DropdownMenuTrigger :ref="setTriggerRef" as-child :disabled="props.disabled" :class="props.rootClass">
             <slot />
         </DropdownMenuTrigger>
 
         <DropdownMenuPortal v-if="props.open === undefined || props.open">
             <DropdownMenuContent
+                :ref="setContentRef"
                 position="popper"
                 :reference="unscaledAnchor"
                 :align="props.align"
@@ -166,6 +259,8 @@ function scheduleSubmenu(item: DropdownItem | null, trigger: HTMLElement, depth 
                 :collision-padding="8"
                 :class="[popoverClasses, resolvedMenuClass]"
                 v-bind="props.contentProps"
+                @interact-outside="keepOpenForCascade"
+                @keydown.capture="onContentKeydown"
             >
                 <!-- 滚动视口（自适应双向渐隐 + 隐藏原生滚动条） -->
                 <div
@@ -180,6 +275,8 @@ function scheduleSubmenu(item: DropdownItem | null, trigger: HTMLElement, depth 
                         :items="props.items"
                         :active="cascade.levels.value[0]?.value"
                         :item-class="itemClassList"
+                        :item-component="DropdownMenuItem"
+                        :wrap="props.wrap"
                         @select="handleSelect"
                         @hover="(item, trigger, immediate) => scheduleSubmenu(item, trigger, 0, immediate)"
                     >
@@ -212,9 +309,10 @@ function scheduleSubmenu(item: DropdownItem | null, trigger: HTMLElement, depth 
                 class="nb-ui-popover-surface nb-ui-menu-surface nb-menu-level fixed overflow-hidden p-1.5"
                 :data-switching="level.switching"
                 :style="level.style"
+                @keydown="(event: KeyboardEvent) => onLevelKeydown(depth, event)"
             >
                 <div class="nb-menu-level-content">
-                    <MenuNodes :items="level.value.children ?? []" :active="cascade.levels.value[depth + 1]?.value" :item-class="itemClassList" @select="handleSelect" @hover="(item, trigger, immediate) => scheduleSubmenu(item, trigger, depth + 1, immediate)" />
+                    <MenuNodes :items="level.value.children ?? []" :active="cascade.levels.value[depth + 1]?.value" :item-class="itemClassList" @select="handleCascadeSelect" @hover="(item, trigger, immediate) => scheduleSubmenu(item, trigger, depth + 1, immediate)" />
                 </div>
             </div>
         </DropdownMenuPortal>

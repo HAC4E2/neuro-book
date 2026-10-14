@@ -1,0 +1,47 @@
+---
+标签: [state:local]
+---
+
+# LabNavPanel
+
+Lab 的左栏：按目录分组的组件树与检索。组件从组件索引来（`component-index.ts`），本零件只负责把它们排成树、按检索词过滤、标出每一行的分类图形。
+
+选中的组件由 LabShell 持有；本零件只在点到组件行时发出 `select`，分组行只负责展开与收起。地址栏换了组件（后退、前进、打开链接）时，树自动展开到那个组件。
+
+## 布局
+
+一个 `CollapsibleSidePanel`：头部是检索框和「命中数 / 总数」，正文是不带卡片底的 `Tree`。宽度由 LabShell 给，收起后只剩一条导轨。
+
+- 每一级目录是一个分组节点，叶子是组件。目录在前、组件在后，各自按名字排。
+- 行首图形按组件分类给，颜色取主题的状态色及其混合；不可挂载的组件标锁；被别处写成「验证入口」的集成入口另有图形；正在加载的组件转圈。
+- 检索没有命中时显示一句说明，可以按组件名、中文部件名或别名搜。
+
+## 交互
+
+- 检索按组件名、文档显示名与别名匹配，不搜正文。输入检索词时把所有目录临时展开，免得命中项藏在收起的目录里；搜索期间的开合只在这次搜索里有效，清掉检索词回到偏好里的开合。
+- 点分组行只展开或收起，不切换组件；开合经 `update:collapsedGroups` 交给 LabShell 写进 Lab 偏好（[组件 Lab](../../../../../../docs/specs/ui/component-lab.md) 的 `collapsedGroups`），只记收起的目录，新目录默认展开。
+- 选中的组件所在的目录是收起的（地址栏换了组件、偏好刚读到）时展开到它并写回；`revealSelected()` 供 LabShell 在偏好读到后调用。
+
+## 数据
+
+```ts
+props: {
+    selected: string;    // 选中的组件名
+    loading: boolean;    // 选中的组件正在加载
+    collapsed: boolean;
+    width: number;
+    collapsedGroups: string[];   // 收起的目录（group: 开头的节点 id），由 LabShell 经 v-model 持有
+}
+emits: {
+    select: [name: string];
+    "update:collapsed": [collapsed: boolean];
+    "update:collapsedGroups": [groups: string[]];
+}
+expose: {
+    revealSelected(): void;
+}
+```
+
+## 隐藏通道理由
+
+`state:local` 是检索词与搜索期间的临时展开集合，只在本次页面里有效，不写偏好、不进地址栏。

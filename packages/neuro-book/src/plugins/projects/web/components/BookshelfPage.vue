@@ -1,0 +1,333 @@
+<script setup lang="ts">
+/** 书架页（同名 .md）：标题栏、案头、卡片与列表两种视图；只呈现数据、发出用户动作。 */
+import {Button, FormSelect, IconButton, SegmentedControl, Skeleton} from "@notnotype/nb-ui/components";
+import {useElementSize} from "@vueuse/core";
+import {computed, ref} from "vue";
+
+import {formatText, localize} from "nbook/shared/localized-text";
+import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
+
+import type {ShelfItem} from "../../shared/shelf";
+import {sortShelf} from "../shelf-format";
+import type {ShelfSort} from "../shelf-format";
+import ShelfCards from "./ShelfCards.vue";
+import ShelfDesk from "./ShelfDesk.vue";
+import ShelfList from "./ShelfList.vue";
+
+defineOptions({name: "BookshelfPage"});
+
+type ShelfView = "cards" | "list";
+
+const props = withDefaults(defineProps<{
+    locale: DisplayLocale;
+    status: "loading" | "ready" | "error";
+    error?: string;
+    items: ReadonlyArray<ShelfItem>;
+    now: string;
+    view: ShelfView;
+    sort: ShelfSort;
+    activeId: string | null;
+    /** 作品目录（新作品建在这里），空书架的“新建作品”卡上写它。 */
+    library: string;
+    /** 一部作品的封面图地址；没有封面为 null。 */
+    coverSrc: (item: ShelfItem) => string | null;
+    /** 本页的设置窗口开着：齿轮画成按下。 */
+    settingsOpen?: boolean;
+}>(), {error: "", settingsOpen: false});
+
+const emit = defineEmits<{
+    (event: "update:view", view: ShelfView): void;
+    (event: "update:sort", sort: ShelfSort): void;
+    (event: "update:activeId", id: string): void;
+    (event: "continue", id: string): void;
+    (event: "open", id: string): void;
+    (event: "open-new-window", id: string): void;
+    (event: "edit", id: string): void;
+    (event: "remove", id: string): void;
+    (event: "create"): void;
+    (event: "add-existing"): void;
+    (event: "retry"): void;
+    /** 点了右上角的齿轮：宿主打开设置窗口。 */
+    (event: "open-settings"): void;
+}>();
+
+const TEXT = {
+    brand: {"zh-CN": "书房", "en-US": "Study"},
+    settings: {"zh-CN": "设置", "en-US": "Settings"},
+    profile: {"zh-CN": "个人资料尚未开放", "en-US": "Profile is not available yet"},
+    shelf: {"zh-CN": "书架", "en-US": "Bookshelf"},
+    count: {"zh-CN": "{count} 部", "en-US": "{count} books"},
+    view: {"zh-CN": "视图", "en-US": "View"},
+    cards: {"zh-CN": "卡片", "en-US": "Cards"},
+    list: {"zh-CN": "列表", "en-US": "List"},
+    sort: {"zh-CN": "排序", "en-US": "Sort"},
+    recent: {"zh-CN": "最近编辑", "en-US": "Recently Edited"},
+    title: {"zh-CN": "书名", "en-US": "Title"},
+    words: {"zh-CN": "字数", "en-US": "Word Count"},
+    create: {"zh-CN": "新建作品", "en-US": "New Book"},
+    addExisting: {"zh-CN": "打开已有作品…", "en-US": "Open Existing…"},
+    retry: {"zh-CN": "重试", "en-US": "Retry"},
+} satisfies Record<string, LocalizedText>;
+
+/** 不足这个宽度只用列表：卡片一列时信息密度不如列表。 */
+const NARROW_WIDTH = 720;
+
+const text = (value: LocalizedText): string => localize(value, props.locale);
+
+const root = ref<HTMLElement | null>(null);
+const {width} = useElementSize(root);
+// 首次量出宽度之前按宽屏排，避免桌面上先闪一帧列表。
+const narrow = computed(() => width.value > 0 && width.value < NARROW_WIDTH);
+const effectiveView = computed<ShelfView>(() => (narrow.value ? "list" : props.view));
+
+const sorted = computed(() => sortShelf(props.items, props.sort, props.locale));
+
+const viewOptions = computed(() => [{value: "cards", label: text(TEXT.cards)}, {value: "list", label: text(TEXT.list)}]);
+const sortOptions = computed(() => [
+    {value: "recent", label: text(TEXT.recent)},
+    {value: "title", label: text(TEXT.title)},
+    {value: "words", label: text(TEXT.words)},
+]);
+
+function onView(value: unknown): void {
+    if (value === "cards" || value === "list") emit("update:view", value);
+}
+
+function onSort(value: string): void {
+    if (value === "recent" || value === "title" || value === "words") emit("update:sort", value);
+}
+
+/** 焦点回到书架：卡片视图是列表框，列表视图是第一行；书架空了时是“新建作品”。 */
+function focusShelf(): void {
+    // 逐个按优先级找：一条选择器列表的 querySelector 取文档顺序的第一个，工具栏的“新建作品”排在书架前面。
+    for (const selector of ['[data-shelf-cards][role="listbox"]', "[data-shelf-row] button", "[data-shelf-create]"]) {
+        const target = root.value?.querySelector<HTMLElement>(selector);
+        if (target !== null && target !== undefined) {
+            target.focus();
+            return;
+        }
+    }
+}
+
+defineExpose({focusShelf});
+</script>
+
+<template>
+    <main ref="root" class="bookshelf-page" :class="{'bookshelf-page--narrow': narrow}" data-bookshelf-page>
+        <div class="bookshelf-page__column">
+            <header class="bookshelf-page__header">
+                <p class="bookshelf-page__brand">
+                    <NeuroBookLockup class="bookshelf-page__lockup" />
+                    <span class="bookshelf-page__room">· {{ text(TEXT.brand) }}</span>
+                </p>
+                <div class="bookshelf-page__tools-right">
+                    <!-- 设置窗口开着时按下：灰底、正文色，同工作台活动栏的齿轮（docs/specs/workbench/bookshelf.md 输出 1）。 -->
+                    <IconButton
+                        size="sm"
+                        icon-class="i-lucide-settings"
+                        :aria-label="text(TEXT.settings)"
+                        :aria-pressed="settingsOpen"
+                        :class="{'bookshelf-page__settings--pressed': settingsOpen}"
+                        data-shelf-settings
+                        @click="emit('open-settings')"
+                    />
+                    <!-- 头像只预留位置：没有个人资料之前不是入口，不可点（外壳规范：不以可操作的假入口呈现）。 -->
+                    <span class="bookshelf-page__avatar" :title="text(TEXT.profile)" aria-hidden="true"><span class="i-lucide-user-round"></span></span>
+                </div>
+            </header>
+
+            <template v-if="status === 'loading'">
+                <Skeleton shape="block" height="150px" />
+                <Skeleton shape="block" height="240px" />
+            </template>
+
+            <div v-else-if="status === 'error'" class="bookshelf-page__error" role="alert">
+                <p>{{ error }}</p>
+                <Button size="sm" @click="emit('retry')">{{ text(TEXT.retry) }}</Button>
+            </div>
+
+            <template v-else>
+                <ShelfDesk :locale="locale" :items="items" :now="now" @continue="emit('continue', $event)" />
+
+                <section class="bookshelf-page__shelf" :aria-label="text(TEXT.shelf)">
+                    <div class="bookshelf-page__shelf-head">
+                        <h2 class="bookshelf-page__shelf-title">
+                            {{ text(TEXT.shelf) }}
+                            <span class="bookshelf-page__count">{{ text(formatText(TEXT.count, {count: items.length})) }}</span>
+                        </h2>
+                        <div class="bookshelf-page__tools">
+                            <SegmentedControl v-if="!narrow" :model-value="view" :options="viewOptions" :aria-label="text(TEXT.view)" @update:model-value="onView" />
+                            <!-- FormSelect 是多根组件，scoped 的宽度类落不到它的触发器上；触发器全宽，宽度由这个外框给。 -->
+                            <div class="bookshelf-page__sort">
+                                <FormSelect id="bookshelf-sort" :model-value="sort" :options="sortOptions" size="sm" :aria-label="text(TEXT.sort)" @update:model-value="onSort" />
+                            </div>
+                            <span class="bookshelf-page__gap" aria-hidden="true"></span>
+                            <Button variant="secondary" size="sm" data-shelf-add @click="emit('add-existing')">{{ text(TEXT.addExisting) }}</Button>
+                            <Button variant="primary" size="sm" icon-class="i-lucide-plus" data-shelf-create @click="emit('create')">{{ text(TEXT.create) }}</Button>
+                        </div>
+                    </div>
+
+                    <ShelfCards
+                        v-if="effectiveView === 'cards' || items.length === 0"
+                        :locale="locale"
+                        :items="sorted"
+                        :active-id="activeId"
+                        :now="now"
+                        :cover-src="coverSrc"
+                        :library="library"
+                        @update:active-id="emit('update:activeId', $event)"
+                        @open="emit('open', $event)"
+                        @open-new-window="emit('open-new-window', $event)"
+                        @edit="emit('edit', $event)"
+                        @remove="emit('remove', $event)"
+                        @create="emit('create')"
+                        @add-existing="emit('add-existing')"
+                    />
+                    <ShelfList
+                        v-else
+                        :locale="locale"
+                        :items="sorted"
+                        :now="now"
+                        :cover-src="coverSrc"
+                        @open="emit('open', $event)"
+                        @open-new-window="emit('open-new-window', $event)"
+                        @edit="emit('edit', $event)"
+                        @remove="emit('remove', $event)"
+                        @create="emit('create')"
+                    />
+                </section>
+            </template>
+        </div>
+    </main>
+</template>
+
+<style scoped>
+.bookshelf-page {
+    min-height: 100%;
+    overflow-x: hidden;
+    background: var(--window-backdrop, var(--bg-main));
+    color: var(--text-main);
+    font-family: var(--font-ui);
+}
+
+.bookshelf-page__column {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: var(--space-6) 40px var(--space-8);
+}
+
+.bookshelf-page--narrow .bookshelf-page__column {
+    gap: var(--space-6);
+    padding: var(--space-4) 16px var(--space-7);
+}
+
+.bookshelf-page__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.bookshelf-page__brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+    color: var(--text-main);
+    font-size: var(--text-md);
+}
+
+.bookshelf-page__lockup {
+    /* 字标的大写高约占成品高的一半：26px 的组合里字标与旁边的“书房”二字差不多高。 */
+    height: 26px;
+}
+
+.bookshelf-page__room {
+    color: var(--text-muted);
+    font-family: var(--font-display);
+    font-weight: var(--weight-normal);
+}
+
+.bookshelf-page__tools-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.bookshelf-page .bookshelf-page__settings--pressed {
+    background: var(--bg-hover);
+    color: var(--text-main);
+}
+
+.bookshelf-page__avatar {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: var(--border-w) solid var(--control-outline);
+    border-radius: 999px;
+    background: var(--control-surface);
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.bookshelf-page__shelf {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.bookshelf-page__shelf-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-4);
+}
+
+.bookshelf-page__shelf-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: var(--weight-strong);
+}
+
+.bookshelf-page__count {
+    margin-left: var(--space-2);
+    color: var(--text-muted);
+    font-family: var(--font-ui);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-normal);
+}
+
+.bookshelf-page__tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.bookshelf-page__gap {
+    width: var(--space-2);
+}
+
+.bookshelf-page__sort {
+    width: 128px;
+}
+
+.bookshelf-page__error {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    color: var(--text-secondary);
+}
+
+.bookshelf-page__error p {
+    margin: 0;
+}
+</style>

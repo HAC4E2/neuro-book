@@ -1,0 +1,165 @@
+/*
+ * 所有页面共用的基础层，接在 reset 之后：UnoCSS 与 nb-ui 的原子类按 Tailwind 的约定写（`border` 只给宽度、
+ * 不给样式），reset 不管这一层，缺了它带边框的元素一律不显示边框。
+ */
+*,
+::after,
+::before,
+::backdrop,
+::file-selector-button {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: 0 solid;
+}
+
+html {
+    scrollbar-gutter: stable;
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--text-muted) transparent;
+}
+
+/*
+ * 宿主页（启动中、失败页）。宿主页在任何插件激活之前就会显示，没有主题变量可用，所以只用系统颜色；
+ * reset 去掉了元素的默认样式，按钮要自己画出来。
+ */
+:root {
+    color-scheme: light dark;
+    font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+    line-height: 1.5;
+}
+
+.nb-host-page {
+    box-sizing: border-box;
+    min-height: 100vh;
+    padding: 2rem 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    text-align: center;
+}
+
+.nb-host-page h1 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.nb-host-page p {
+    margin: 0;
+    max-width: 40rem;
+}
+
+/*
+ * 工作台的页面：外壳占满视口，它是外壳布局的承载盒（不能有 padding、border，测量按布局盒）。底色、文字与字体由外壳
+ * 消费产品主题（docs/specs/theme/system.md 的“运行时流程”）；宿主页仍只用上面的系统颜色。
+ */
+.nb-workbench-page {
+    width: 100%;
+    height: 100dvh;
+    overflow: hidden;
+}
+
+/* 工作台页占满视口、自己不滚动：根上不预留滚动条位置，否则右缘空出一条（ui/workbench-shell.md 输出 38）。 */
+html:has(.nb-workbench-page) {
+    scrollbar-gutter: auto;
+}
+
+.nb-host-reason {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+    opacity: 0.8;
+}
+
+.nb-host-page h1 {
+    font-weight: 600;
+}
+
+.nb-host-page button {
+    margin-top: 0.75rem;
+    padding: 0.4rem 1.2rem;
+    border: 1px solid ButtonBorder;
+    border-radius: 0.375rem;
+    background: ButtonFace;
+    color: ButtonText;
+    cursor: pointer;
+}
+
+.nb-host-page button:focus-visible,
+.nb-host-home:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+}
+
+/* 与项目有关的宿主页另给的“不打开项目”：普通链接，用系统的链接色，不依赖主题。 */
+.nb-host-home {
+    color: LinkText;
+    font-size: 0.875rem;
+}
+
+/*
+ * 离线横幅：浮在页面顶部、不占布局，出现与收起都不推动页面内容。和宿主页一样只用系统颜色：它属于宿主，
+ * 不依赖插件提供的主题。层级刻意取接近整数上限、不进 nb-ui 的层级登记表：宿主页不依赖 nb-ui，而它必须压住
+ * 插件画出的一切（包括对话框与命令面板）。
+ */
+.nb-offline-banner {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 2147483000;
+    margin: 0;
+    padding: 0.25rem 1rem;
+    background: Mark;
+    color: MarkText;
+    font-size: 0.875rem;
+    text-align: center;
+    pointer-events: none;
+}
+
+/* 终态页抢救出来的未保存正文：宽度跟随页面，文本框可选中复制，不撑出横向滚动。 */
+.nb-host-rescued {
+    width: 100%;
+    max-width: 48rem;
+    margin-top: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    text-align: start;
+}
+
+.nb-host-rescued h2 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.nb-host-rescued-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.nb-host-rescued-head code {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.875rem;
+}
+
+.nb-host-rescued-head button {
+    margin-top: 0;
+    flex-shrink: 0;
+}
+
+.nb-host-rescued textarea {
+    box-sizing: border-box;
+    width: 100%;
+    margin-top: 0.25rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.875rem;
+    resize: vertical;
+}

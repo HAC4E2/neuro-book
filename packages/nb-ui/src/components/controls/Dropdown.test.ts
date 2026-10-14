@@ -110,6 +110,41 @@ describe("Dropdown", () => {
         expect(wrapper.emitted("select")).toEqual([["top"]]);
     });
 
+    it("子菜单的键盘：展开后焦点进第一项，上下移动，左方向键收起回到父项；在子项上按下指针菜单不关，选中后整个菜单收起", async () => {
+        const wrapper = mountDropdown({
+            items: [
+                {label: "视图", value: "group:view", children: [{label: "侧栏", value: "sidebar"}, {label: "面板", value: "panel"}]},
+                {label: "帮助", value: "help"},
+            ],
+        });
+        await open(wrapper);
+        const parent = document.querySelector<HTMLElement>("[role=menuitem][aria-haspopup=menu]")!;
+        parent.focus();
+        parent.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+        await flush();
+        const leaves = () => Array.from(document.querySelectorAll<HTMLElement>(".nb-menu-level [role=menuitem]"));
+        expect(leaves().map((leaf) => leaf.textContent?.trim())).toEqual(["侧栏", "面板"]);
+        expect(document.activeElement).toBe(leaves()[0]);
+        leaves()[0]!.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+        expect(document.activeElement).toBe(leaves()[1]);
+        leaves()[1]!.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowLeft", bubbles: true, cancelable: true}));
+        await flush();
+        expect(document.activeElement).toBe(parent);
+        expect(leaves()).toHaveLength(0);
+
+        // 再展开，按下指针（Reka 看来是菜单内容之外）后点击子项：菜单还在、选中生效，然后整个菜单收起
+        parent.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+        await flush();
+        const target = leaves()[1]!;
+        target.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, cancelable: true, pointerType: "mouse", button: 0}));
+        await flush();
+        expect(document.querySelector("[role=menu]")).not.toBeNull();
+        target.click();
+        await flush();
+        expect(wrapper.emitted("select")).toEqual([["panel"]]);
+        expect(wrapper.emitted("update:open")?.at(-1)).toEqual([false]);
+    });
+
     it("radio/checkbox 的勾选态只读宿主的 checked，组件不代为切换", async () => {
         const wrapper = mountDropdown({
             items: [

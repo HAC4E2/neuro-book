@@ -24,7 +24,7 @@ owners:
 
 - **安装目录**：`<State Root>/plugins/<插件 id>/<版本>/`，一个版本一个目录。
 - **插件登记表**：`<State Root>/plugins/plugins.json`，记录每个已安装第三方插件的 id、当前版本与用户状态（已启用、已禁用或卸载中），以及被用户禁用的内置插件。未出现在表中的第三方插件为“未安装”；内置插件缺省为已启用，NeuroBook 升级后保留用户对内置插件的禁用。
-- **插件管理接口**：内置插件 `nbook.plugins` 经插件通道提供的合同端点：列表、影响预览、安装、启用、禁用、卸载。
+- **插件管理接口**：内置插件 `nbook.plugins` 经远程服务（[远程服务与 RPC 协议](plugin-channel.md)）提供的接口：列表、影响预览、安装、启用、禁用、卸载。
 - **插件所有者**：启用认证时为 `admin` 角色的用户；未启用认证时（本机单用户）为本机访问者。
 - **安全模式**：本次启动不加载任何第三方插件代码的启动方式。
 - **热升级**：已安装插件换到另一版本，不重启。
@@ -122,5 +122,5 @@ Smoke：阶段 3 的示例外部插件完成场景 1、3、4、5、8，在真实
 
 ## 证据
 
-- 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P8（含 2026-09-30 确认的热升级）与 P11；[ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 1、3、4 条。
+- 批准目标：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P8（含 2026-09-30 确认的热升级）与 P11；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 1、3、4 条。
 - 插件登记表文件名 `plugins.json`、复制范围与路径边界、拒绝同版本重装、允许降级并提示、升级成功判定、各操作的提交点、插件管理限插件所有者、安全模式环境变量名、插件管理由内置插件 `nbook.plugins` 提供，由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。

@@ -1,0 +1,8 @@
+$ cd packages/neuro-book && bun run typecheck
+$ tsc --noEmit
+exit 0
+
+$ bun test 2>&1 | grep -E "^\(pass\)|^\(fail\)| pass$| fail$|^Ran"
+ 40 pass
+ 0 fail
+Ran 40 tests across 6 files. [4.74s]

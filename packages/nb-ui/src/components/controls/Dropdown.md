@@ -19,7 +19,9 @@
 - 默认插槽内容是触发器；点击或由上游菜单原语支持的键盘操作打开/关闭菜单。组件不锁定页面指针事件（`modal` 为 `false`）。
 - 点击普通叶子项发出 `select`，传该项的 `value`；禁用项不发出，带 `children` 的父项只展开子菜单，不选择自己。
 - `type: "radio"` 或 `"checkbox"` 的项分别使用对应 menuitem 语义并显示 `checked`；组件只读 `checked`，选择后仍由宿主更新输入数据，不在内部切换。
-- 指针悬停首次展开子菜单等待 300ms；点击、键盘 ArrowRight 或已有同级面板切换立即展开。离开/关闭会清理级联状态。
+- 指针悬停首次展开子菜单等待 300ms；点击、键盘 ArrowRight（以及父项上的 Enter、空格）或已有同级面板切换立即展开。离开/关闭会清理级联状态。
+- 级联面板的键盘：键盘展开时焦点进新一级的第一项；上下键、Home、End 在本级可用项之间移动（跳过分隔线与禁用项）；ArrowRight 在父项上展开下一级；ArrowLeft 收起本级、焦点回到展开它的那一项；Escape 关掉整个菜单、焦点还给触发器。
+- 级联面板在上游菜单内容之外：面板里的指针按下与焦点不算“点了外部”，菜单不关；在面板里选中一项后整个菜单收起（非受控时由组件自己关，受控时经 `update:open` 报 `false`）。
 - 菜单关闭时 `update:open` 报告 `false`，上游负责把焦点归还触发器；打开后的方向键、Escape、Home/End 等菜单漫游行为由 Reka UI 负责。组件声明的 `focus` 事件当前实现没有发出路径，见「已知偏差」。
 - 菜单内容溢出时可滚动；拖动右侧悬浮滑块滚动，拖动手势结束或组件销毁时解除窗口监听。
 
@@ -53,6 +55,8 @@ type DropdownProps = {
     open?: boolean;
     /** 透传到主菜单浮层根节点的原生属性；默认 {} */
     contentProps?: Record<string, unknown>;
+    /** 条目文字允许换行：菜单最宽 320px，长文字完整显示（例如状态栏收进“更多”的条目）；默认 false，单行截断 */
+    wrap?: boolean;
 };
 
 type DropdownEmits = {
@@ -88,7 +92,7 @@ interface DropdownItem {
     rightIconClass?: string;
     /** 右侧快捷键提示文字；默认不显示 */
     shortcut?: string;
-    /** 原生 title 提示；默认 undefined */
+    /** 原生提示与读屏描述（`aria-description`），例如禁用原因；禁用项同样带上；默认 undefined */
     title?: string;
     /** 视觉语气；默认 "default" */
     tone?: "default" | "danger";
@@ -127,11 +131,11 @@ type DropdownItemType = "item" | "radio" | "checkbox";
 
 ## 上游边界
 
-Reka UI 负责菜单角色、键盘漫游、Escape/outside dismiss、焦点归还、受控展开生命周期、Portal 与 Popper 碰撞定位。本组件承诺菜单项映射、选择事件、级联面板、滚动视口和浮层样式；未由本组件明确约束的上游行为不属于稳定合同。
+Reka UI 负责菜单角色、Escape/outside dismiss、焦点归还、受控展开生命周期、Portal 与 Popper 碰撞定位，以及一级菜单的键盘：一级菜单的条目是 Reka 的菜单项，上下键、Home、End、首字母跳转、跳过禁用项、Enter 与空格选择都由它负责（真实 Chrome 验收见新应用的 `e2e/lab-nb-ui.e2e.ts`）。级联面板是本组件手工维护的（接不到上游的菜单上下文）：面板里的键盘漫游、展开与收起由本组件处理，见“交互”。本组件承诺菜单项映射、选择事件、级联面板、滚动视口和浮层样式；未由本组件明确约束的上游行为不属于稳定合同。
 
 ## 隐藏通道理由
 
-- `state:inject`：从 `NB_POPOVER_Z_INDEX` 读取所属 `DialogWindow` 的浮层层级，避免菜单被窗口表面遮挡；没有提供方时回退到普通 popover 层级。
+- `state:inject`：从 `NB_POPOVER_Z_INDEX` 读取所属 `Dialog` 的浮层层级，避免菜单被窗口表面遮挡；没有提供方时回退到普通 popover 层级。
 - `env:portal`：菜单必须脱离触发器祖先的局部 stacking context 才能覆盖页面内容；渲染位置由 Reka Portal 决定，组件不提供目标配置。目标位置及不可用表现本地源码未核实。
 - `env:timer`：首次悬停级联菜单使用 300ms 延迟以减少误展开；关闭或切换时取消待执行任务。
 - `env:global`：滚动条拖动期间在 `window` 监听 `mousemove` / `mouseup`，以支持指针离开滑块后的连续拖动；手势结束或卸载时解除监听。

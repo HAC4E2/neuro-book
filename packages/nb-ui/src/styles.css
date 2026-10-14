@@ -29,6 +29,16 @@ html {
 }
 
 /*
+ * 内嵌焦点线：填满所在条的控件（标签、状态栏条目、整行标题）四周没有余地，外扩光晕怎么调都会被所在的条裁掉，
+ * 焦点改画在控件里面一圈，用同一个焦点描边色。
+ */
+.nb-ui-focus-ring-inset:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1.5px var(--focus-outline);
+    transition: box-shadow var(--motion-base) var(--ease-standard);
+}
+
+/*
  * 表单控件状态基座（单一来源）。
  * 所有字段类控件（FormInput/FormNumberInput/FormSelect/FormTextarea/Combobox/TagInput）
  * 的边框与聚焦辉光都从这里出，invalid 由组件根据 FormField context 追加 .nb-ui-control-invalid。
@@ -134,7 +144,7 @@ input.nb-ui-native-input[type="number"] {
  * 浮层面板外观基座（与 theme/z-index.ts 的 NB_Z_INDEX 对称的登记处）。
  * Dropdown / Combobox / ContextMenu / Tooltip / Dialog / TimePicker 的浮层面板统一从这里取
  * 边框、圆角、底色、阴影与磨砂；新增浮层组件请消费此类，不要再复制这一组属性。
- * 例外：DialogWindow 的毛玻璃窗体、Panel 的页面表面投影刻意不同，各自维护。
+ * 例外：Panel 的页面表面投影刻意不同，自己维护；对话框的两种用法都在这一层之上只加 `.nb-ui-dialog-surface` 换圆角与投影。
  *
  * 五个取值全部走主题变量，且默认值逐项对齐改动前的写死值——
  * --panel-outline → --border-color、--overlay-surface → --bg-panel、--overlay-blur → none、
@@ -156,8 +166,12 @@ input.nb-ui-native-input[type="number"] {
     background-color: var(--overlay-surface);
     background-image: none;
     box-shadow: var(--elevation-popover);
-    backdrop-filter: var(--overlay-blur);
+    /*
+     * 带前缀的必须写在标准写法前面（本文件其余几处同理）：应用构建的 CSS 压缩把同值的一对当成重复，只留后一条；
+     * 后一条若是 `-webkit-`，Chrome 就没有模糊，玻璃浮层看上去是透明的。
+     */
     -webkit-backdrop-filter: var(--overlay-blur);
+    backdrop-filter: var(--overlay-blur);
 
     /*
      * 内圈的同心半径。这条不是外观，是**几何约束**，所以和外观一起放在这个登记处：
@@ -186,8 +200,8 @@ input.nb-ui-native-input[type="number"] {
     border-radius: var(--radius-control);
     background-color: var(--bg-panel);
     background-image: none;
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     color: var(--text-main);
     font-size: var(--text-xs);
     line-height: var(--leading-tight);
@@ -198,9 +212,10 @@ input.nb-ui-native-input[type="number"] {
     -webkit-user-select: none;
 }
 
-/* 菜单 / 下拉的几何 modifier。外圈 12px 时，默认 6px 内边距与 1px 描边推出约 5px 内圈。 */
+/* 菜单 / 下拉的半径与投影 modifier：两者各有一档主题变量；贴边菜单项的内圈半径照上面的公式由外圈推出。 */
 .nb-ui-menu-surface {
     --nb-popover-radius: var(--radius-menu, var(--radius-panel));
+    box-shadow: var(--elevation-menu, var(--elevation-popover));
 }
 
 /* 仅整块玻璃 surface opt-in 镜面层；菜单、下拉等小浮层默认不铺面渐变。 */
@@ -237,7 +252,7 @@ input.nb-ui-native-input[type="number"] {
  * 2. 手写 v-if 浮层（Dropdown）——配 Vue <Transition name="nb-popover"> 使用，
  *    enter/leave-active 期间直接播同两条 keyframes，原点给 top center 兜底。
  *
- * 已有自己过渡的浮层（Combobox / ContextMenu / Tooltip / DialogWindow / TimePicker）
+ * 已有自己过渡的浮层（Combobox / ContextMenu / Tooltip / Dialog / TimePicker）
  * 不挂这个 modifier，避免两层动画叠加。
  */
 @keyframes nb-popover-in {
@@ -325,6 +340,23 @@ input.nb-ui-native-input[type="number"] {
 .nb-ui-dialog-surface {
     border-radius: var(--radius-dialog);
     box-shadow: var(--elevation-dialog);
+}
+
+/*
+ * 对话框的标题与页脚（Dialog 的两种用法与 AlertDialog 共用）：标题与正文同字号，只差字重——这是 Apple 官方
+ * UI Kit 的实测值（Alert 的 Title 是 Bold 13px，Description 是 Regular 13px）；页脚是一行按钮，间距一处给。
+ */
+.nb-ui-dialog-title {
+    color: var(--text-main);
+    font-size: var(--text-sm);
+    font-weight: 700;
+    line-height: var(--leading-tight);
+}
+
+.nb-ui-dialog-footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
 }
 
 /*
@@ -482,13 +514,13 @@ input.nb-ui-native-input[type="number"] {
  * 折叠内容的编排由状态属性驱动，不用 `data-[state=open]:animate-*` 变体：
  * `animate-*` 的主题键不在 presetUno 里，变体类不会生成，组件会静默失去动画。
  *
- * padding + 等量负 margin：内容盒与子元素位置不变，裁切盒向外放 6px——
- * 折叠容器里的输入控件聚焦时的光环（box-shadow）压在内容盒之上，不这样会被动画裁切剪掉。
+ * 只在高度动画进行中裁切（组件在 animationstart 时打 `data-animating`、结束或取消时去掉）：展开完成后不裁，
+ * 里面控件的焦点光环有完整的空间。不用“内边距加等量负外边距”把裁切盒往外放：那样外框比父容器宽，
+ * 放进可横向滚动的容器时多出一截滚动距离。
  */
-.nb-collapsible-content,
-.nb-accordion-content {
-    padding: 6px;
-    margin: -6px;
+.nb-collapsible-content[data-animating],
+.nb-accordion-content[data-animating] {
+    overflow: hidden;
 }
 
 .nb-collapsible-content[data-state="open"],
@@ -528,6 +560,31 @@ input.nb-ui-native-input[type="number"] {
         transparent 100%
     );
     animation: nb-shimmer 2s var(--ease-standard) infinite;
+}
+
+/*
+ * 不确定进度的短条：宽三分之一，在轨道里从左滑出右边、循环；轨道（父元素）负责裁切。
+ * 循环周期不属于三档过渡时长，和微光一样在基座里只写这一处。
+ */
+@keyframes nb-ui-indeterminate {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(300%);
+    }
+}
+
+.nb-ui-indeterminate-runner {
+    width: calc(100% / 3);
+    animation: nb-ui-indeterminate 1.4s var(--ease-standard) infinite;
+}
+
+/* 减少动画时停在轨道左端：“进行中”由旁边的文字与 aria 表达，短条不动也不丢信息。 */
+@media (prefers-reduced-motion: reduce) {
+    .nb-ui-indeterminate-runner {
+        animation: none;
+    }
 }
 
 /* 悬浮微晶发光弥散 Pulse 动画 */
@@ -629,9 +686,9 @@ input.nb-ui-native-input[type="number"] {
 
 .nb-ui-drop-indicator[data-drop-indicator="area"],
 .nb-ui-drop-indicator[data-drop-indicator="entry"] {
-    border: 1px solid color-mix(in srgb, var(--accent-main) 70%, transparent);
+    border: 1px solid var(--drop-area-border);
     border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--accent-main) 12%, transparent);
+    background: var(--drop-area-fill);
     box-shadow: var(--elevation-raised);
     transition: opacity var(--motion-fast) var(--ease-standard);
 }
@@ -658,8 +715,8 @@ input.nb-ui-native-input[type="number"] {
     font-weight: var(--weight-medium);
     line-height: var(--leading-tight);
     box-shadow: var(--elevation-raised);
-    backdrop-filter: var(--overlay-blur);
     -webkit-backdrop-filter: var(--overlay-blur);
+    backdrop-filter: var(--overlay-blur);
 }
 
 .nb-ui-drop-indicator-label__icon {
@@ -685,7 +742,7 @@ input.nb-ui-native-input[type="number"] {
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
     .nb-ui-drop-indicator-label {
         background: var(--panel-surface);
-        backdrop-filter: none;
         -webkit-backdrop-filter: none;
+        backdrop-filter: none;
     }
 }

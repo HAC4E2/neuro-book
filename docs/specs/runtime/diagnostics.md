@@ -79,7 +79,7 @@ owners:
 - 浏览器console/紧急通道仅写；后端文件出口拥有已授予日志位置中的追加、轮转与保留。预算按该独占位置计算，禁止越位置回收；输出通道与内存查询缓冲不是两套可独立修改的行为真相源。
 - 后端文件出口、其句柄/队列及有界内存记录由诊断插件拥有；宿主拥有紧急通道及日志位置授予，授予在写入/轮转收口完成后释放。调用方拥有事件业务含义。
 - 关闭不删除业务数据，不以scope退出触发历史日志回收；日志维护只按显式保留预算操作本位置中的归属日志。
-- 沿用既有日志位置解析入口（含 `NEURO_BOOK_LOG_DIR`），不新增目录层级或搬迁历史文件。不能从“两个进程配置了同一路径”推断它们可安全同时轮转；冲突按降级处理，正式接入时迁移该位置全部写入/轮转owner。
+- 后端日志位置是 `<状态根>/logs/`，状态根由 [`runtime.server-host`](server-host.md) 的启动参数 `NBOOK_STATE_ROOT` 给出；新应用不读取旧应用的 `NEURO_BOOK_LOG_DIR`，不搬迁旧应用的历史文件。不能从“两个进程配置了同一路径”推断它们可安全同时轮转；冲突按降级处理。
 - 不发起网络副作用：无遥测、无上报；断网环境与联网环境行为一致。
 
 ## 失败与恢复
@@ -97,7 +97,8 @@ owners:
 - 依赖方向单向：其它插件与领域消费诊断；诊断不反向依赖它们，也不要求它们先就绪才能报告启动错误。
 - 脱敏与容量上限是受信代码的防误用边界：按已知敏感字段名与凭据模式工作，不承诺识别任意 secret，也不因自由文本扫描成为数据防泄漏沙箱；内置同进程代码仍是受信代码。
 - 诊断只管理所授予日志位置，不承担业务文件I/O；无文件系统的位置以console和提供者有界内存记录满足合同，不因缺少落盘不可用。
-- 后端保留逐行JSONL、既有字段与级别/事件含义、位置解析和历史文件；新记录在既有 `data` 中增补来源身份，不重写旧日志。`packages/neuro-book/server/app-logs/` 是复用基线，不是已经支持多实例轮转或本合同的证据。
+- 后端保留逐行 JSONL、既有字段与级别/事件含义；新记录在 `data` 中增补来源身份，不重写旧日志。旧应用的 `packages/neuro-book-legacy/server/app-logs/` 只作移植参照，不是本合同的证据。
+- **已知限制**：无遥测的证据是静态导入守卫，不是运行期网络拦截；未知字段名下的自由文本脱敏只覆盖已知凭据模式。
 - 本切片验收只要求诊断提供者在真实日志目录（后端运行位置）与无文件系统出口下独立可用，不要求 Project、Agent、模型或 UI 启动；后续消费者按本合同接入，不建立第二份日志正文。
 
 ## 验收与 Smoke
@@ -115,22 +116,19 @@ owners:
 
 ## 实现合同
 
-- **实现 owner 与入口**：runtime-diagnostics。平台中立机制唯一公开入口 `packages/neuro-book/runtime/diagnostics/diagnostics.ts`（`createDiagnosticsStore`、`createDiagnosticsPlugin`、`diagnosticsKey`、`mechanismObservers`、`recordingEmergency`、`DiagnosticsError` 与脱敏函数，`export type *`）；环境出口 `server/features/runtime-diagnostics/jsonl-exporter.ts`（`createJsonlExporterFactory`、`createStderrFallback`）与 `app/features/runtime-diagnostics/console-exporter.ts`（`createConsoleExporterFactory`、`createConsoleFallback`）。后端 JSONL 追加、轮转与保留由 `server/app-logs/jsonl-log-writer.ts` 承担，产品 `AppFileLogger` 与本出口共用它和同一脱敏实现（原 `server/utils/sensitive-text.ts` 已并入 `runtime/diagnostics/redaction.ts`）。
-- **依赖方向**：机制目录只导入同目录与 `../lifecycle`、`../services`、`../plugins`、`../application`（仅类型），不导入框架、进程、DOM、文件或网络；出口只导入机制入口、Node 文件 API 与 `proper-lockfile`。两条源码守卫测试锁定这两条边界。
+- **实现 owner 与入口**：runtime-diagnostics。平台中立机制唯一公开入口 `packages/nb-runtime/src/diagnostics/diagnostics.ts`（包入口 `@notnotype/nb-runtime/diagnostics`；`createDiagnosticsStore`、`createDiagnosticsPlugin`、`diagnosticsKey`、`mechanismObservers`、`recordingEmergency`、`DiagnosticsError` 与脱敏函数，`export type *`）。后端入口在新应用 `packages/neuro-book/src/plugins/diagnostics/backend/`：`plugin.ts`（`createServerDiagnosticsPlugin({store, exporter})`，激活期间把 `console.warn`、`console.error` 记入诊断）、`jsonl-exporter.ts`（`createJsonlExporterFactory`、`createStderrFallback`、日志位置授予）、`log-writer.ts`（JSONL 追加、轮转与保留）；诊断存储由后端宿主在建立运行实例前创建，日志位置为 `<状态根>/logs/`。浏览器入口在 `packages/neuro-book/src/plugins/diagnostics/web/`：`plugin.ts`（`createBrowserDiagnosticsPlugin({store, console})`，每个窗口运行实例一份诊断存储，由窗口在建立实例前创建；不桥接 console，出口本身写 console）、`console-exporter.ts`（`createConsoleExporterFactory`、`createConsoleFallback`）。脱敏只有内核 `redaction.ts` 一份实现。
+- **依赖方向**：机制目录只导入同目录与 `../lifecycle`、`../services`、`../plugins`、`../application`（仅类型），不导入框架、进程、DOM、文件或网络；后端出口只导入机制入口、Node 文件 API 与 `proper-lockfile`；浏览器出口只导入机制入口。前两条由源码守卫测试锁定，浏览器一侧由新应用的 `src/architecture.test.ts` 锁定。
 - **关键不变量**：
   - 装配方在 `createApplication` 之前创建 store（默认 1000 条、单条消息 4000 字符，非法预算装配期抛错）；`mechanismObservers(store)` 经清单观察者记录 lifecycle/plugins 事件；插件激活时挂接出口并补写挂接前缓冲。`recordingEmergency(store, emergency)` 把宿主紧急报告先记为 fatal `application.<stage>-emergency` 再转交独立紧急输出，所以必需门禁失败在收口前进入记录。
   - 记录结果只有 `accepted` 或 `rejected: stopping|closed|invalid-input`，出口写失败、出口自报失守只让 store 降级（`status().degraded`），error/fatal 改走兜底通道；兜底自身抛错被吞掉。
   - 服务释放即 `store.shutdown()`：先拒绝新记录，补写后关闭出口；出口关闭失败抛 `close-incomplete`、阶段留在 `stopping`，再次 `shutdown()`（经 `Application.recover`）只重试失败步骤且并发调用共享同一尝试；关闭后 `attach` 抛 `closed`，查询仍可用。
   - JSONL 出口用目录内 `server-logs.lock`（proper-lockfile，stale 30 s／update 10 s，retries 0）取得位置授予；拿不到即 `location-conflict` 降级，不写、不轮转、不回收；释放前核对锁目录身份（dev/ino/birthtime），已被接管则只报失守、不删他人锁。只回收 `server-current.jsonl` 与 `server-<时间>-<pid>-<token>.jsonl`，来源身份写在 `data.$source`。
-- **验收映射**：场景 1、2、4–6 → `server/features/runtime-diagnostics/jsonl-exporter.test.ts`（真实临时目录读回、冲突、脱敏、父路径被文件占据、关闭、接管、轮转与冲突不回收）；场景 2、3、5、8 → `runtime/diagnostics/diagnostics.test.ts`（有界记录/淘汰、脱敏、只装配诊断与模拟必需门禁失败、经 `createApplication` 的关闭未完成与显式恢复）与 `app/features/runtime-diagnostics/console-exporter.test.ts`；场景 7 → 同一 JSONL 测试文件的源码导入守卫。经 `bun run test:runtime-foundation` 与 `bun run typecheck:runtime-foundation` 运行。
+- **验收映射**：场景 1、2、4–6 → `packages/neuro-book/src/plugins/diagnostics/backend/jsonl-exporter.test.ts`（真实临时目录读回、冲突、脱敏、父路径被文件占据、关闭、接管、轮转与冲突不回收）；场景 2、3、5、8 → `packages/nb-runtime/src/diagnostics/diagnostics.test.ts`（有界记录/淘汰、脱敏、只装配诊断与模拟必需门禁失败、经 `createApplication` 的关闭未完成与显式恢复）与 `packages/neuro-book/src/plugins/diagnostics/web/console-exporter.test.ts`（按级别写 console、写入失败降级而记录照常接受）；场景 7 → 同一 JSONL 测试文件的源码导入守卫；后端入口的 `console.warn`、`console.error` 桥接（照常输出、记入诊断、关闭后恢复）→ 同目录 `plugin.test.ts`。内核与前后端出口的测试分别在 `packages/nb-runtime`、`packages/neuro-book` 经 `bun run test` 运行。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --services` 在真实子进程中验证日志读回、来源身份、敏感样本只剩占位符、并发实例 `location-conflict` 降级且未写占用位置、缺失诊断提供者时紧急输出可见、启动门禁失败写入诊断日志。
 
 ## 证据
 
-- 实现入口：[`diagnostics.ts`](../../../packages/neuro-book/runtime/diagnostics/diagnostics.ts)
-- 合同测试：[`diagnostics.test.ts`](../../../packages/neuro-book/runtime/diagnostics/diagnostics.test.ts)
-- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
-- 批准依据：开发者于 2026-09-20 明确接受总体推进方向（第一切片止于环境适配入口与小内核，第二切片用内置服务插件验证），并要求把两片沉淀为 `planned` Spec；[应用运行时与内置插件架构提案](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md) 的内置插件划分表把 `runtime-diagnostics` 定义为提供日志实现与结构化生命周期诊断、早期必需、完整日志失败仍有最小输出的服务。
-- 实现 provenance：[w00017 应用运行时与内置插件架构](../../../.agents/works/w00017-application-runtime-architecture/README.md) 与其 [t04 底座两切片规范与整体实施路径任务](../../../.agents/works/w00017-application-runtime-architecture/tasks/t04-foundation-spec-plan/README.md)。
-- 实现与验证：[w00017 t10](../../../.agents/works/w00017-application-runtime-architecture/tasks/t10-runtime-diagnostics/README.md)（机制、双出口与合同测试）、[t13 第二片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t13-services-integration-review/README.md)（组合 smoke 与逐条核对后晋升）。
-- 已知限制：产品启动链尚未迁入，产品 `AppFileLogger` 仍直接写日志目录且不参与位置授予锁，与本出口同时指向同一目录时不互斥；无遥测证据是静态导入守卫，不是运行期网络拦截；未知字段名下的自由文本脱敏只覆盖已知凭据模式。
+- 实现入口：[`diagnostics.ts`](../../../packages/nb-runtime/src/diagnostics/diagnostics.ts)、后端入口 [`plugin.ts`](../../../packages/neuro-book/src/plugins/diagnostics/backend/plugin.ts)、浏览器入口 [`plugin.ts`](../../../packages/neuro-book/src/plugins/diagnostics/web/plugin.ts)
+- 合同测试：[`diagnostics.test.ts`](../../../packages/nb-runtime/src/diagnostics/diagnostics.test.ts)、[`jsonl-exporter.test.ts`](../../../packages/neuro-book/src/plugins/diagnostics/backend/jsonl-exporter.test.ts)、[`plugin.test.ts`](../../../packages/neuro-book/src/plugins/diagnostics/backend/plugin.test.ts)、[`console-exporter.test.ts`](../../../packages/neuro-book/src/plugins/diagnostics/web/console-exporter.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book-legacy/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）。这是旧应用宿主上的 smoke，运行的是旧应用里的内核副本；新应用宿主的 smoke 随应用骨架建立。
+- 批准依据：开发者于 2026-09-20 明确接受总体推进方向（第一切片止于环境适配入口与小内核，第二切片用内置服务插件验证），并要求把两片沉淀为 `planned` Spec；[应用运行时与内置插件架构提案](../../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md) 的内置插件划分表把 `runtime-diagnostics` 定义为提供日志实现与结构化生命周期诊断、早期必需、完整日志失败仍有最小输出的服务。

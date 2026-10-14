@@ -23,9 +23,11 @@ updated: 2026-10-13
 - 新应用全套 e2e（合并结果，先 `build:server`、`build:web`、`build:e2e`）：199 例中 198 例通过；`workbench-shell.e2e.ts` 的“同一客户端的两个窗口”首屏 15 秒没出来（本机内存只剩约 4 GB，记忆里记过的首屏超时），单独重跑通过，整个文件 14 例重跑全过。
 - 开发者面板对新应用的冒烟：`nbdev dev start --checkout .worktree/w00017-t85-master-merge` 起新应用的 `dev` 并就绪，`nbdev shot -- -c TitleActions --vp phone` 出 4 张图、无问题，`nbdev dev stop` 有序停下；日志与截图在本地 `.local/agent/works/w00017-application-runtime-architecture/tasks/t85-master-merge/`。
 - 历史重写已演练（只生成对象，不动引用）：从 `2cca6d3fa` 起 138 个提交换号，13 个旧文件版本删去账户名（用词与 `012f1a1e4` 的清理一致），各分支末端的树与原来逐字节相同；新历史里能到达的 24380 个文件版本没有账户名。受影响的引用：`master`、`feat/w00022-dev-panel`、`archive/legacy-ui-tuning`、本 Task 分支，以及 `w00022-t15-review` 的分离 HEAD 和三处 ORIG_HEAD。w00022 记录里引用的 94 个提交号要随之更新。
+- 2026-10-14 重验：w00022 在 10-14 01:51 把 t15 阶段 1 的面板代码合进了 master，第一次切换在核对处停下、什么都没改。在当时的 master 上重建合并（`423b53a73`）：新应用、内核、nb-ui 与验证过的树一致，面板改动部分重跑 `bun install --frozen-lockfile`（无变化）、`governance:check`、`docs:check`（0 失败）、仓库脚本（110 例）与 dev-panel 的类型检查和测试（374 例）全过。
+- 2026-10-14 合入：`master` 快进到合并提交 `7945d9326`（父提交 `779d9cd7b`、`e4cbd1248`），开发者在主工作区执行 `window_a.sh`（自动模式拦下了 Agent 执行）。主工作区先移走 184 个旧应用改动（逐个核对与归档分支一致；第一次执行在暂存的新路径上缺 `-f` 停了一次，补上后从断点续跑），旧应用被忽略的 `.env`、`.nuxt`、生成文件与 `node_modules` 挪到 `packages/neuro-book-legacy/`，之后 `bun install`。主工作区只剩原地保留的 11 个改动（w00019、w00021 的记录，owned-process，`install.sh`）。
 - 空间清理第一批：删除 governance 标为“待清理”的 `.worktree/w00018-pre-nb-ui-baseline`、`.worktree/w00020-startup-exit-api-auth` 与本地分支 `chore/w00018-pre-nb-ui-baseline`、`fix/w00020-startup-exit-api-auth`（都已在 master，工作区干净）。
 
 ## 下一步
 
-1. 开发者暂停 w00022 等会话后：主工作区移走会被合并改到的旧应用文件（已在归档分支），`master` 快进到合并提交；正式重写历史（按旧号核对、一次性移动引用，删除指向旧提交的 reflog 条目并留审计，gc，核对旧对象已不存在）；更新 w00022 记录里的提交号；push `master`。
+1. w00022 的编码子代理停下、没有进行中的 git 操作时（脚本会检查）：正式重写历史（按旧号核对、一次性移动引用，删除指向旧提交的 reflog 条目并留审计，gc，核对旧对象已不存在）；更新 w00022 记录里的提交号；push `master`。
 2. 清理第二批：t80、t84 的 worktree 与分支，本地分支 `remote`、`backup/w00017-before-trailer-cleanup`。远端 89 个按祖先关系未合入的旧分支只列出，删除要开发者另行同意。

@@ -76,6 +76,6 @@ Reka UI Autocomplete 提供输入、活动选项、键盘交互、选择和 Port
 
 ## 隐藏通道理由
 
-`env:inject`：组件读取可选的 `NB_POPOVER_Z_INDEX` 注入值，以便位于 `DialogWindow` 内容树时将候选面板放在窗口本体上方；未提供时使用公共页面浮层层级。该层级由窗口宿主掌握，父组件没有理由为每个表单字段重复传入。
+`env:inject`：组件读取可选的 `NB_POPOVER_Z_INDEX` 注入值，以便位于 `Dialog` 内容树时将候选面板放在窗口本体上方；未提供时使用公共页面浮层层级。该层级由窗口宿主掌握，父组件没有理由为每个表单字段重复传入。
 
 `env:portal`：候选列表使用 Reka Autocomplete Portal，避免受字段祖先裁剪。Portal 目标由上游管理；目标不可用时的具体行为遵循 Reka UI。

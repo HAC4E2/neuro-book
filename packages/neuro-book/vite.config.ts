@@ -1,0 +1,52 @@
+/**
+ * 前端构建与开发服务的共同配置。开发监督进程在此基础上改为中间件模式并加代理，生产只用 `vite build`。
+ */
+
+import {fileURLToPath} from "node:url";
+
+import vue from "@vitejs/plugin-vue";
+import UnoCSS from "unocss/vite";
+import {defineConfig} from "vite";
+
+/** 浏览器基线（runtime.browser-host）：内核用到 Promise.withResolvers 与 AbortSignal.any。 */
+export const BROWSER_TARGETS = ["chrome119", "edge119", "firefox124", "safari17.4"];
+
+const packageRoot = fileURLToPath(new URL(".", import.meta.url));
+
+export default defineConfig({
+    root: `${packageRoot}src/web`,
+    cacheDir: `${packageRoot}node_modules/.vite`,
+    // root 是 src/web，UnoCSS 默认在 root 下找配置，所以显式指定包根的 uno.config.ts。
+    // `neurobook-*` 是品牌成品里的原生自定义元素（`src/ui/brand/`），不是 Vue 组件，模板编译时不去解析它。
+    plugins: [vue({template: {compilerOptions: {isCustomElement: (tag) => tag.startsWith("neurobook-")}}}), UnoCSS({configFile: `${packageRoot}uno.config.ts`})],
+    resolve: {alias: [{find: /^nbook\//u, replacement: `${packageRoot}src/`}]},
+    // 关闭依赖发现、预构建清单写死：依赖发现进行中时 Vite 的 close() 不结算（Bun 与 Node 都是），开发监督进程停止时
+    // 会卡住。不在清单里的第三方依赖按源码逐个文件提供，其中的 CommonJS 模块（例如 vanilla-jsoneditor 依赖的 ajv）
+    // 在浏览器里加载失败，所以页面直接或经 nb-ui 用到的第三方包都要列进来。
+    optimizeDeps: {
+        noDiscovery: true,
+        include: [
+            "vue",
+            // 插件状态 store 直接用它；必须与 vue 用同一份预构建，否则组件里读 store 的 computed 不刷新
+            "@vue/reactivity",
+            "vue-router",
+            // nb-ui 的运行依赖（nb-ui 本身是 workspace 源码，不预构建）
+            "reka-ui",
+            "@vueuse/core",
+            "class-variance-authority",
+            "clsx",
+            "tailwind-merge",
+            // JsonViewer、MarkdownView
+            "json-editor-vue",
+            "vanilla-jsoneditor",
+            "marked",
+            "dompurify",
+            // 远程服务合同、引导与 Storage 的 schema、命令声明的编译检查器。用到的每个子路径都要列：漏一个，开发模式每次
+            // 整页加载就要逐个请求几百个模块文件，Chrome 会以 ERR_INSUFFICIENT_RESOURCES 拒绝其中一些，页面停在启动中。
+            "typebox",
+            "typebox/value",
+            "typebox/compile",
+        ],
+    },
+    build: {outDir: `${packageRoot}dist/web`, emptyOutDir: true, target: BROWSER_TARGETS},
+});
