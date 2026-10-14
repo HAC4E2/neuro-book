@@ -41,6 +41,8 @@ const OPEN_ARGS = Type.Object({
     editor: Type.Optional(Type.Union([Type.Literal("markdown"), Type.Literal("code")])),
     /** 打开后把光标放到末尾（docs/specs/workbench/editor.md 输出 29）。 */
     reveal: Type.Optional(Type.Literal("end")),
+    /** 在哪一组打开：组 id，或 `side`（活动组右侧）；缺省活动组（输出 35）。 */
+    group: Type.Optional(Type.String({minLength: 1})),
 }, {additionalProperties: false});
 
 const OPEN_PAGE_ARGS = Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false});
@@ -59,7 +61,7 @@ const GO_TO_LINE_ARGS = Type.Object({
 }, {additionalProperties: false});
 
 export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, CommandDeclaration>> = {
-    [OPEN_COMMAND]: {title: title("打开文件", "Open File"), category: EDITOR, description: "Open a resource address in the active editor group; preview tabs are replaced by the next preview open.", args: OPEN_ARGS, effect: "read", expose: {human: false, agent: "auto"}},
+    [OPEN_COMMAND]: {title: title("打开文件", "Open File"), category: EDITOR, description: "Open a resource address in the active editor group, or in the group given by id, or with group \"side\" in the group to the right of the active one (split right when there is none); preview tabs are replaced by the next preview open.", args: OPEN_ARGS, effect: "read", expose: {human: false, agent: "auto"}},
     // 要参数、不进命令面板：用户经各页面自己的命令打开（例如“帮助 > 欢迎”）。
     [OPEN_PAGE_COMMAND]: {title: title("打开页面", "Open Page"), category: EDITOR, description: "Open an editor page (a tab that is not a file, such as the welcome page) by its contribution id; a page already open in the window is activated instead of opened twice.", args: OPEN_PAGE_ARGS, effect: "read", expose: {human: false, agent: "auto"}},
     [SAVE_COMMAND]: {title: title("保存", "Save"), category: EDITOR, description: "Save the active document against its disk baseline; a changed disk is reported as a conflict, never overwritten.", args: NO_ARGS, effect: "write", when: when("dirty"), expose: {agent: "confirm"}},
@@ -101,8 +103,8 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, pa
     };
     return {
         [OPEN_COMMAND]: run((current, args) => {
-            const {address, mode, editor, reveal} = args as Static<typeof OPEN_ARGS>;
-            return fromAction(current.open(address, {mode, ...(editor === undefined ? {} : {editor}), ...(reveal === undefined ? {} : {reveal})}));
+            const {address, mode, editor, reveal, group} = args as Static<typeof OPEN_ARGS>;
+            return fromAction(current.open(address, {mode, ...(editor === undefined ? {} : {editor}), ...(reveal === undefined ? {} : {reveal}), ...(group === undefined ? {} : {group})}));
         }),
         [OPEN_PAGE_COMMAND]: run((current, args) => {
             const {id} = args as Static<typeof OPEN_PAGE_ARGS>;

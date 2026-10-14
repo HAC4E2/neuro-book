@@ -36,6 +36,11 @@ export const CUT_COMMAND = "nbook.files.cut";
 export const PASTE_COMMAND = "nbook.files.paste";
 export const CLEAR_CUT_COMMAND = "nbook.files.clear-cut";
 export const REVEAL_COMMAND = "nbook.files.reveal";
+export const RETRY_LIST_COMMAND = "nbook.files.retry-list";
+export const OPEN_SELECTION_COMMAND = "nbook.files.open";
+export const OPEN_TO_SIDE_COMMAND = "nbook.files.open-to-side";
+export const COPY_PATH_COMMAND = "nbook.files.copy-path";
+export const COPY_RELATIVE_PATH_COMMAND = "nbook.files.copy-relative-path";
 
 const CATEGORY = {"zh-CN": "文件", "en-US": "Files"};
 const NO_ARGS = Type.Object({}, {additionalProperties: false});
@@ -70,6 +75,11 @@ export const EXPLORER_COMMAND_DECLARATIONS = {
     [CUT_COMMAND]: onSelection("cut", "Put the selected files and folders on this window's file clipboard for moving; their identity is frozen now.", "read", ["ready", "hasSelection"]),
     [PASTE_COMMAND]: onSelection("paste", "Copy or move the clipboard items into the explorer's target folder, asking about name collisions.", "write", ["ready", "canPaste"]),
     [CLEAR_CUT_COMMAND]: onSelection("clearCut", "Clear the cut items from this window's file clipboard.", "read", ["ready"]),
+    [RETRY_LIST_COMMAND]: onSelection("retry", "List again the focused folder whose listing failed.", "read", ["ready"]),
+    [OPEN_SELECTION_COMMAND]: onSelection("open", "Open the selected files (and content nodes with a body) as permanent tabs in the active editor group.", "read", ["ready", "hasSelection"]),
+    [OPEN_TO_SIDE_COMMAND]: onSelection("openToSide", "Open the selected files in the editor group to the right of the active one, splitting right when there is none.", "read", ["ready", "hasSelection"]),
+    [COPY_PATH_COMMAND]: onSelection("copyPath", "Copy the absolute paths (on the server machine) of the selected items to the system clipboard, one per line.", "read", ["ready", "hasSelection"]),
+    [COPY_RELATIVE_PATH_COMMAND]: onSelection("copyRelativePath", "Copy the paths of the selected items relative to their root to the system clipboard, one per line.", "read", ["ready", "hasSelection"]),
     [REFRESH_FILES_COMMAND]: {
         title: explorerLocalized("refresh"),
         category: CATEGORY,
@@ -131,6 +141,18 @@ export function explorerCommands(session: ExplorerSession, locale: () => Display
         [CUT_COMMAND]: action(CUT_COMMAND, (controller) => controller.cut()),
         [PASTE_COMMAND]: action(PASTE_COMMAND, (controller) => controller.paste()),
         [CLEAR_CUT_COMMAND]: action(CLEAR_CUT_COMMAND, (controller) => controller.clearCut()),
+        [OPEN_SELECTION_COMMAND]: action(OPEN_SELECTION_COMMAND, (controller) => controller.openSelection(false)),
+        [OPEN_TO_SIDE_COMMAND]: action(OPEN_TO_SIDE_COMMAND, (controller) => controller.openSelection(true)),
+        [COPY_PATH_COMMAND]: action(COPY_PATH_COMMAND, (controller) => controller.copyPaths(false)),
+        [COPY_RELATIVE_PATH_COMMAND]: action(COPY_RELATIVE_PATH_COMMAND, (controller) => controller.copyPaths(true)),
+        // 读取失败挂在目录行上（行尾的标记点了也是重新列出）：作用于焦点行。
+        [RETRY_LIST_COMMAND]: action(RETRY_LIST_COMMAND, (controller) => {
+            const focus = controller.selection.value.focus;
+            const row = focus === null ? undefined : controller.rows.value.find((candidate) => candidate.id === focus);
+            if (row === undefined || row.kind === "edit" || row.problem?.kind !== "error") return {ok: false, reason: "not-applicable"};
+            controller.model.retry(row.id);
+            return done;
+        }),
         [REVEAL_COMMAND]: {
             run: (args) => {
                 const {address, expand} = args as {address: string; expand?: boolean};

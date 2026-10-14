@@ -509,17 +509,17 @@ describe("Spec workbench.files-explorer 拖动：判定与提交", () => {
         select(controller, "project://plain/a.md", "project://plain/z.md");
         expect(controller.startDrag("project://plain/a.md")).toBe(true);
         expect(controller.drag.value).toEqual({sources: ["project://plain/a.md", "project://plain/z.md"], over: null, action: {kind: "none"}});
-        controller.hoverDrag({id: "project://plain/sub", zone: "inside"});
-        expect(controller.drag.value?.action).toEqual({kind: "move", target: "project://plain/sub"});
+        controller.hoverDrag({kind: "row", id: "project://plain/sub", offset: 0.5, x: 200});
+        expect(controller.drag.value?.action).toEqual({kind: "move", target: "project://plain/sub", ordered: false});
         // 放下时指针下已经是另一行：与显示的不同，不写。
-        await controller.dropDrag({id: "project://dest", zone: "inside"});
+        await controller.dropDrag({kind: "row", id: "project://dest", offset: 0.5, x: 200});
         expect(controller.drag.value).toBeNull();
         await barrier(w);
         expect(writes(w)).toEqual([]);
 
         controller.startDrag("project://plain/a.md");
-        controller.hoverDrag({id: "project://plain/sub", zone: "inside"});
-        await controller.dropDrag({id: "project://plain/sub", zone: "inside"});
+        controller.hoverDrag({kind: "row", id: "project://plain/sub", offset: 0.5, x: 200});
+        await controller.dropDrag({kind: "row", id: "project://plain/sub", offset: 0.5, x: 200});
         expect(await text(at(w.scene, "plain/sub/a.md"))).toBe("PA");
         expect(await text(at(w.scene, "plain/sub/z.md"))).toBe("Z");
         expect(writes(w).map((request) => [request.method, (request.input as {items: Array<{expected?: string}>}).items.map((item) => item.expected)])).toEqual([["move", [expect.any(String), expect.any(String)]]]);
@@ -531,8 +531,8 @@ describe("Spec workbench.files-explorer 拖动：判定与提交", () => {
         select(controller, "project://plain/z.md");
         controller.startDrag("project://plain/a.md");
         expect(controller.drag.value?.sources).toEqual(["project://plain/a.md"]);
-        controller.hoverDrag({id: "project://dest", zone: "inside"});
-        const dropping = controller.dropDrag({id: "project://dest", zone: "inside"});
+        controller.hoverDrag({kind: "row", id: "project://dest", offset: 0.5, x: 200});
+        const dropping = controller.dropDrag({kind: "row", id: "project://dest", offset: 0.5, x: 200});
         await asked(w, "project://plain/a.md");
         expect(controller.dialog.value).toMatchObject({action: "move", target: "project://dest/a.md"});
         controller.resolveCollision({kind: "rename", name: "a (2).md"}, false);
@@ -545,43 +545,93 @@ describe("Spec workbench.files-explorer 拖动：判定与提交", () => {
         const w = await world();
         const {controller} = w;
         controller.startDrag("project://lore.content/bob");
-        controller.hoverDrag({id: "project://lore.content/alice", zone: "before"});
+        controller.hoverDrag({kind: "row", id: "project://lore.content/alice", offset: 0.1, x: 200});
         expect(controller.drag.value?.action).toMatchObject({kind: "reorder", names: ["bob", "alice", "gone"]});
-        await controller.dropDrag({id: "project://lore.content/alice", zone: "before"});
+        await controller.dropDrag({kind: "row", id: "project://lore.content/alice", offset: 0.1, x: 200});
         expect([...(await text(at(w.scene, "lore.content/content.xml"))).matchAll(/name="([^"]+)"/gu)].map((match) => match[1])).toEqual(["bob", "alice", "gone"]);
         expect(writes(w).map((request) => request.method)).toEqual(["reorder"]);
+    });
+
+    it("别的文件夹拖到内容文件夹两行之间：移动并放到那个位置，一次批量带 before；放到未列入项之后为 null（排在清单末尾）", async () => {
+        const w = await world();
+        const {controller} = w;
+        const names = async (): Promise<string[]> => [...(await text(at(w.scene, "lore.content/content.xml"))).matchAll(/name="([^"]+)"/gu)].map((match) => match[1] as string);
+        controller.startDrag("project://plain/a.md");
+        controller.hoverDrag({kind: "row", id: "project://lore.content/alice", offset: 0.9, x: 200});
+        expect(controller.drag.value?.action).toMatchObject({kind: "place", target: "project://lore.content", before: "bob", line: {row: "project://lore.content/alice", depth: 2}});
+        await controller.dropDrag({kind: "row", id: "project://lore.content/alice", offset: 0.9, x: 200});
+        expect(await names()).toEqual(["alice", "a.md", "bob", "gone"]);
+        expect(await text(at(w.scene, "lore.content/a.md"))).toBe("PA");
+        expect(writes(w).map((request) => [request.method, (request.input as {items: Array<{before?: string | null}>}).items.map((item) => item.before)])).toEqual([["move", ["bob"]]]);
+
+        await until(w, "a.md 出现在内容文件夹", () => row(controller, "project://lore.content/a.md") !== undefined);
+        controller.startDrag("project://plain/z.md");
+        controller.hoverDrag({kind: "row", id: "project://lore.content/stray.md", offset: 0.9, x: 200});
+        expect(controller.drag.value?.action).toMatchObject({kind: "place", target: "project://lore.content", before: null});
+        await controller.dropDrag({kind: "row", id: "project://lore.content/stray.md", offset: 0.9, x: 200});
+        expect(await names()).toEqual(["alice", "a.md", "bob", "gone", "z.md"]);
+    });
+
+    it("拖到别的文件夹里的文件上移入它所在的文件夹；拖到树里的空白移入项目根；拖到编辑组执行打开、不写盘", async () => {
+        const w = await world();
+        const {controller} = w;
+        controller.startDrag("project://plain/zz.md");
+        controller.hoverDrag({kind: "row", id: "project://dest/a.md", offset: 0.1, x: 200});
+        expect(controller.drag.value?.action).toEqual({kind: "move", target: "project://dest", ordered: false});
+        controller.hoverDrag({kind: "row", id: "project://dest/z.md", offset: 0.9, x: 200});
+        await controller.dropDrag({kind: "row", id: "project://dest/z.md", offset: 0.9, x: 200});
+        expect(await text(at(w.scene, "dest/zz.md"))).toBe("ZZ");
+
+        await until(w, "dest/zz.md 出现", () => row(controller, "project://dest/zz.md") !== undefined);
+        controller.startDrag("project://dest/zz.md");
+        controller.hoverDrag({kind: "blank"});
+        expect(controller.drag.value?.action).toEqual({kind: "move", target: "project://", ordered: false});
+        await controller.dropDrag({kind: "blank"});
+        expect(await text(at(w.scene, "zz.md"))).toBe("ZZ");
+
+        // 编辑组：执行 nbook.editor.open（这个场地没有编辑器，给出“编辑器尚未接入”），不发写请求。
+        await until(w, "zz.md 出现在根", () => row(controller, "project://zz.md") !== undefined);
+        const before = writes(w).length;
+        controller.startDrag("project://zz.md");
+        controller.hoverDrag({kind: "editor", group: "g1"});
+        expect(controller.drag.value?.action).toEqual({kind: "open", group: "g1", addresses: ["project://zz.md"], skipped: 0});
+        await controller.dropDrag({kind: "editor", group: "g1"});
+        await waitUntil("提示出现", () => controller.notice.value);
+        expect(controller.notice.value).toEqual({kind: "editor-missing", address: "project://zz.md"});
+        await barrier(w);
+        expect(writes(w)).toHaveLength(before);
     });
 
     it("拖动中切换显示清单文件、源被删除：拖动取消，放下不写；拖动中源被同字节替换：放下为源已换", async () => {
         const w = await world();
         const {controller} = w;
         controller.startDrag("project://plain/a.md");
-        controller.hoverDrag({id: "project://plain/sub", zone: "inside"});
+        controller.hoverDrag({kind: "row", id: "project://plain/sub", offset: 0.5, x: 200});
         controller.setShowManifests(true);
         expect(controller.drag.value).toBeNull();
-        await controller.dropDrag({id: "project://plain/sub", zone: "inside"});
+        await controller.dropDrag({kind: "row", id: "project://plain/sub", offset: 0.5, x: 200});
 
         // 令牌取到之后才删源：取消要来自源的行不在了，不是令牌没取到。
         const frozen = w.tap.hold((request) => request.method === "identify");
         controller.startDrag("project://plain/z.md");
-        controller.hoverDrag({id: "project://plain/sub", zone: "inside"});
+        controller.hoverDrag({kind: "row", id: "project://plain/sub", offset: 0.5, x: 200});
         await frozen.arrived;
         frozen.release();
         await rm(at(w.scene, "plain/z.md"));
         await until(w, "源失效，拖动取消", () => controller.drag.value === null);
-        await controller.dropDrag({id: "project://plain/sub", zone: "inside"});
+        await controller.dropDrag({kind: "row", id: "project://plain/sub", offset: 0.5, x: 200});
         await barrier(w);
         expect(writes(w)).toEqual([]);
 
         // 服务端算出令牌之后（回复已到、还没交付），在同一路径换成同字节的新文件。
         const identified = w.tap.hold((request) => request.method === "identify");
         controller.startDrag("project://plain/a.md");
-        controller.hoverDrag({id: "project://plain/sub", zone: "inside"});
+        controller.hoverDrag({kind: "row", id: "project://plain/sub", offset: 0.5, x: 200});
         await identified.arrived;
         await rm(at(w.scene, "plain/a.md"));
         await writeFile(at(w.scene, "plain/a.md"), "PA");
         identified.release();
-        await controller.dropDrag({id: "project://plain/sub", zone: "inside"});
+        await controller.dropDrag({kind: "row", id: "project://plain/sub", offset: 0.5, x: 200});
         expect(controller.report.value?.items).toEqual([{address: "project://plain/a.md", target: "project://plain/sub/a.md", result: expect.objectContaining({status: "failed", code: "source-changed"})}]);
         expect(await exists(at(w.scene, "plain/sub/a.md"))).toBe(false);
     });
@@ -618,8 +668,8 @@ describe("Spec workbench.files-explorer 冻结的意图：迟到的结果与失�
         const {controller} = w;
         const identified = w.tap.hold((request) => request.method === "identify");
         controller.startDrag("project://plain/a.md");
-        controller.hoverDrag({id: "project://dest", zone: "inside"});
-        const dropping = controller.dropDrag({id: "project://dest", zone: "inside"});
+        controller.hoverDrag({kind: "row", id: "project://dest", offset: 0.5, x: 200});
+        const dropping = controller.dropDrag({kind: "row", id: "project://dest", offset: 0.5, x: 200});
         await identified.arrived;
         controller.setShowManifests(true);
         identified.release();

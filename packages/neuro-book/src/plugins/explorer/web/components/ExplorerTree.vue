@@ -7,13 +7,15 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch} from 
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import {zoneOf} from "../actions/drop";
-import type {DropAction, DropZone} from "../actions/drop";
+import type {DropAction, DropOver} from "../actions/drop";
 import type {KeyOutcome} from "../controller";
 import {explorerText} from "../messages";
 import {createTreeDrag} from "../tree-drag";
-import type {TreeDrag, TreeDragPoint} from "../tree-drag";
+import type {TreeDrag, TreeDragPointer, TreeDragTarget} from "../tree-drag";
+import {parentAddress} from "../tree/address";
 import type {TreeKey} from "../tree/keys";
+import type {MotionNote} from "../tree/motion";
+import {displayLabel} from "../tree/rows";
 import type {Row} from "../tree/rows";
 import type {Modifiers} from "../tree/selection";
 import {clampTop, renderedRows, revealTop} from "../tree/window";
@@ -32,8 +34,14 @@ const props = defineProps<{
     editing?: {readonly id: string; readonly name: string; readonly error: string | null; readonly busy: boolean} | null;
     /** 拖动过了门槛：返回 false 时不起拖。缺省不能拖。 */
     startDrag?: (id: string) => boolean;
-    /** 拖动中最后显示的落点动作；不在拖动为 null。 */
-    drag?: {readonly action: DropAction} | null;
+    /** 拖动中：被拖的源（行 id）与最后显示的落点动作；不在拖动为 null。 */
+    drag?: {readonly sources: ReadonlyArray<string>; readonly action: DropAction} | null;
+    /** 缩进参考线：不画、悬停或有焦点时画、一直画；默认 `hover`。 */
+    indentGuides?: "none" | "hover" | "always";
+    /** 设置“隐藏 Markdown 扩展名”；默认 false。 */
+    hideMarkdownExtension?: boolean;
+    /** 宿主最近一次提交的结构变化预告：之后的刷新里认出这些地址才放动画。 */
+    motion?: MotionNote | null;
 }>();
 
 const emit = defineEmits<{
@@ -45,9 +53,11 @@ const emit = defineEmits<{
     (event: "edit-input", name: string): void;
     (event: "edit-commit"): void;
     (event: "edit-cancel"): void;
-    (event: "drag-hover", over: {readonly id: string; readonly zone: DropZone} | null): void;
-    (event: "drag-drop", over: {readonly id: string; readonly zone: DropZone} | null): void;
+    (event: "drag-hover", over: DropOver | null): void;
+    (event: "drag-drop", over: DropOver | null): void;
     (event: "drag-cancel"): void;
+    /** 拖动中指针在收起的目录行中段停了 600 毫秒：展开它。 */
+    (event: "drag-expand", id: string): void;
 }>();
 
 /** 探针还没量出尺寸（没有布局的环境）时的行高与视口高度。 */
@@ -77,6 +87,26 @@ const rendered = computed(() => renderedRows({count: props.rows.length, rowHeigh
 const page = computed(() => Math.max(1, Math.floor(viewport.value / rowHeight.value)));
 
 const domId = (id: string): string => `${prefix}-${encodeURIComponent(id)}`;
+
+/**
+ * 加深的那一段参考线：焦点行（没有焦点时取第一个选中行）与它连续的同层兄弟（中间夹着的更深的行也算），加深的是它们上级
+ * 的那一层。焦点在根或根的直接子项上时没有可加深的线。
+ */
+const guideRange = computed((): {readonly lo: number; readonly hi: number; readonly level: number} | null => {
+    let anchor = focusIndex.value;
+    if (anchor < 0) anchor = props.selected.length === 0 ? -1 : props.rows.findIndex((row) => row.id === props.selected[0]);
+    const row = anchor < 0 ? undefined : props.rows[anchor];
+    if (row === undefined || row.depth < 2) return null;
+    let lo = anchor;
+    let hi = anchor;
+    while (lo > 0 && (props.rows[lo - 1] as Row).depth >= row.depth) lo -= 1;
+    while (hi < props.rows.length - 1 && (props.rows[hi + 1] as Row).depth >= row.depth) hi += 1;
+    return {lo, hi, level: row.depth - 1};
+});
+const guideActiveAt = (index: number): number | null => {
+    const range = guideRange.value;
+    return range !== null && index >= range.lo && index <= range.hi ? range.level : null;
+};
 const activeDescendant = computed(() => (focusIndex.value < 0 ? undefined : domId(props.focus as string)));
 
 /** 滚动锚点：首个可见行与行内偏移。行变了时按它还原阅读位置。 */
@@ -175,7 +205,7 @@ const onBlur = (event: FocusEvent): void => {
 
 const press = (row: Row, event: MouseEvent, part: "twisty" | "row"): void => {
     focusTree();
-    if (row.kind === "status" || row.kind === "edit") return;
+    if (row.kind === "edit") return;
     emit("row-press", row.id, {toggle: event.ctrlKey || event.metaKey, range: event.shiftKey}, part);
 };
 
@@ -186,87 +216,359 @@ const context = (row: Row, event: MouseEvent): void => {
 
 // ---- 拖动：手势在 `tree-drag.ts`，落点判定与提交在控制器。 ----
 
-/** 指针下的行与它的矩形：落点反馈画在这里。 */
-const hovered = ref<{readonly id: string; readonly zone: DropZone; readonly rect: DOMRect} | null>(null);
-const overOf = (point: TreeDragPoint | null): {readonly id: string; readonly zone: DropZone; readonly rect: DOMRect} | null => {
-    const row = point === null ? undefined : props.rows.find((candidate) => candidate.id === point.id);
-    return point === null || row === undefined ? null : {id: point.id, zone: zoneOf(row, point.offset), rect: point.rect};
+/**
+ * 指针下的落点与画反馈要用的几何：行的矩形；移入目录时还要那个目录在树里的整段范围，按交出落点那一刻的树矩形与滚动位置
+ * 换算（之后滚动会先撤下落点，不会用到过期的几何）。
+ */
+interface Hovered {
+    readonly over: DropOver;
+    readonly rect: DOMRect;
+    readonly tree: DOMRect;
+    readonly scrollTop: number;
+}
+const hovered = ref<Hovered | null>(null);
+const pointer = ref<TreeDragPointer | null>(null);
+const overOf = (target: TreeDragTarget | null): Hovered | null => {
+    if (target === null || root.value === null) return null;
+    const geometry = {rect: target.rect, tree: root.value.getBoundingClientRect(), scrollTop: root.value.scrollTop};
+    if (target.kind === "blank") return {over: {kind: "blank"}, ...geometry};
+    if (target.kind === "editor") return {over: {kind: "editor", group: target.group}, ...geometry};
+    const row = props.rows.find((candidate) => candidate.id === target.id);
+    return row === undefined ? null : {over: {kind: "row", id: target.id, offset: target.offset, x: target.x}, ...geometry};
 };
-const strip = (over: {readonly id: string; readonly zone: DropZone} | null) => (over === null ? null : {id: over.id, zone: over.zone});
+
+/** 停留展开：指针停在收起的目录行中段 600 毫秒（docs/specs/workbench/files-explorer.md 的“拖动”）。落点换了重新计时。 */
+const EXPAND_HOVER_MS = 600;
+let expandTimer: ReturnType<typeof setTimeout> | null = null;
+let expandFor = "";
+/** 正在计时的目录行：它的箭头在计时里匀速转到朝下（有动画时才标）。 */
+const expandPending = ref("");
+const clearExpand = (): void => {
+    if (expandTimer !== null) clearTimeout(expandTimer);
+    expandTimer = null;
+    expandFor = "";
+    expandPending.value = "";
+};
+// 只在落点动作是“移入这个目录”时计时：拖着目录停在它自己身上（没有落点）不展开。
+watch([hovered, () => props.drag?.action], ([next, action]) => {
+    const over = next?.over;
+    const row = over?.kind === "row" && action?.kind === "move" && action.target === over.id ? props.rows.find((candidate) => candidate.id === over.id) : undefined;
+    const waiting = row !== undefined && (row.kind === "root" || row.kind === "entry") && !row.expanded && (row.kind === "root" || row.expandable) ? row.id : "";
+    if (waiting === expandFor) return;
+    clearExpand();
+    if (waiting === "") return;
+    expandFor = waiting;
+    if (motionMs("--motion-base") > 0) expandPending.value = waiting;
+    expandTimer = setTimeout(() => {
+        expandTimer = null;
+        expandFor = "";
+        expandPending.value = "";
+        emit("drag-expand", waiting);
+    }, EXPAND_HOVER_MS);
+});
+onBeforeUnmount(clearExpand);
+
 let gesture: TreeDrag | null = null;
 onMounted(() => {
     if (root.value === null) return;
     gesture = createTreeDrag({
         root: root.value,
         start: (id) => props.startDrag?.(id) ?? false,
-        hover: (point) => {
-            hovered.value = overOf(point);
-            emit("drag-hover", strip(hovered.value));
+        hover: (target, at) => {
+            pointer.value = at;
+            hovered.value = overOf(target);
+            emit("drag-hover", hovered.value?.over ?? null);
         },
-        drop: (point) => {
+        drop: (target) => {
+            const over = overOf(target)?.over ?? null;
+            if (over === null || props.drag == null || props.drag.action.kind === "none") flyBack();
             hovered.value = null;
-            emit("drag-drop", strip(overOf(point)));
+            pointer.value = null;
+            clearExpand();
+            emit("drag-drop", over);
         },
         cancel: () => {
+            flyBack();
             hovered.value = null;
+            pointer.value = null;
+            clearExpand();
             emit("drag-cancel");
         },
     });
 });
 onBeforeUnmount(() => gesture?.dispose());
 
-/**
- * 展开收起的动画（docs/specs/workbench/files-explorer.md 的“新应用的插件、命令与界面”）：树是虚拟列表，滚动时窗口两端也有
- * 行进出，不能一律做进出动画。只在展开的目录变了之后的一个 `--motion-base` 里打 `data-expanding`，样式只在这时让新出现的行
- * 从上方滑下并淡入、离开的行反向、其余行的位置跟着过渡。系统减少动画时这个时长是 0，不打。watch 在渲染之前跑，标记与新行
- * 同一次渲染出现，进场的过渡才有起点。
- */
-const expanding = ref(false);
-let expandingTimer: ReturnType<typeof setTimeout> | null = null;
-/** 动画结束后多留这么久再撤标记：离开的行可能晚一帧开始过渡，撤早了会被截断。 */
-const EXPANDING_SLACK_MS = 100;
-const expandedIds = computed(() => props.rows.flatMap((row) => ((row.kind === "root" || row.kind === "entry") && row.expanded ? [row.id] : [])).join("\n"));
-watch(expandedIds, () => {
+/** 主题的动画时长（毫秒）；系统减少动态效果时为 0，没有布局的环境也当 0。 */
+function motionMs(name: "--motion-base" | "--motion-fast"): number {
     const element = root.value;
-    if (element === null) return;
-    const duration = Number.parseFloat(getComputedStyle(element).getPropertyValue("--motion-base"));
-    if (!(duration > 0)) return;
-    if (expandingTimer !== null) clearTimeout(expandingTimer);
-    expanding.value = true;
-    expandingTimer = setTimeout(() => {
-        expanding.value = false;
-        expandingTimer = null;
-    }, duration + EXPANDING_SLACK_MS);
+    if (element === null) return 0;
+    const value = Number.parseFloat(getComputedStyle(element).getPropertyValue(name));
+    return value > 0 ? value : 0;
+}
+
+/**
+ * 过渡窗口（docs/specs/workbench/files-explorer.md 的“动画”）：树是虚拟列表，滚动时窗口两端也有行进出，不能一律做进出
+ * 动画。只在展开的目录变了、或认出了宿主预告的结构变化之后的一个 `--motion-base` 里打 `data-motion`，样式只在这时让新出现
+ * 的行从上方滑下并淡入、离开的行反向、其余行的位置跟着过渡。watch 在渲染之前跑，标记与新行同一次渲染出现，进场的过渡才有
+ * 起点。系统减少动态效果时时长是 0，不打。
+ */
+const moving = ref(false);
+let movingTimer: ReturnType<typeof setTimeout> | null = null;
+/** 动画结束后多留这么久再撤标记：离开的行可能晚一帧开始过渡，撤早了会被截断。 */
+const MOTION_SLACK_MS = 100;
+const pulseMotion = (): void => {
+    const duration = motionMs("--motion-base");
+    if (duration <= 0) return;
+    if (movingTimer !== null) clearTimeout(movingTimer);
+    moving.value = true;
+    movingTimer = setTimeout(() => {
+        moving.value = false;
+        movingTimer = null;
+    }, duration + MOTION_SLACK_MS);
+};
+const expandedIds = computed(() => props.rows.flatMap((row) => ((row.kind === "root" || row.kind === "entry") && row.expanded ? [row.id] : [])).join("\n"));
+watch(expandedIds, pulseMotion);
+
+/**
+ * 认预告：预告到达时记下移动源此刻的位置；之后每次刷新对一遍，认出的项放动画并划掉，`NOTE_TTL_MS` 内没认完的丢掉。
+ * - 移动：新地址出现（调整顺序是同一行换了位置）时，那一行从原位置滑过来（FLIP：先用 `transform` 放回原位、不带过渡地
+ *   渲染一帧，再撤掉，让过渡把它带到新位置）并亮一下；原地址的行离开时不放离场动画（它“就是”滑过来的那一行）。新旧地址
+ *   都看不见（放进了收起的目录）时，最近的可见上级目录行亮一下。
+ * - 新建与粘贴：新行出现时亮一下（进场动画由过渡窗口给）。删除：行离开时打开过渡窗口。
+ */
+const NOTE_TTL_MS = 1000;
+interface Pending {
+    moves: Array<{readonly from: string; readonly to: string; readonly fromTop: number | null}>;
+    arrivals: Set<string>;
+    departures: Set<string>;
+}
+let pending: Pending | null = null;
+let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+/** 正在从原位置滑过来的行：id → 原位置减新位置（像素）。 */
+const flips = ref(new Map<string, number>());
+/** 滑过来或新出现的行（不放进场动画的那一种用 `movedIds` 区分）。 */
+const movedIds = ref(new Set<string>());
+const glowIds = ref(new Set<string>());
+/** 移动的原地址：它的行离开时直接隐去。 */
+const vanishing = new Set<string>();
+let glowTimer: ReturnType<typeof setTimeout> | null = null;
+watch(() => props.motion, (note) => {
+    if (pendingTimer !== null) clearTimeout(pendingTimer);
+    pending = null;
+    if (note == null || motionMs("--motion-base") <= 0) return;
+    const indexOf = new Map(props.rows.map((row, index) => [row.id, index]));
+    pending = {
+        moves: note.moves.map((move) => {
+            const at = indexOf.get(move.from);
+            return {...move, fromTop: at === undefined ? null : at * rowHeight.value};
+        }),
+        arrivals: new Set(note.arrivals),
+        departures: new Set(note.departures),
+    };
+    for (const move of note.moves) if (move.from !== move.to) vanishing.add(move.from);
+    pendingTimer = setTimeout(() => {
+        pending = null;
+        pendingTimer = null;
+        vanishing.clear();
+    }, NOTE_TTL_MS);
 });
+watch(() => props.rows, (rows) => {
+    const waiting = pending;
+    if (waiting === null) return;
+    const indexOf = new Map(rows.map((row, index) => [row.id, index]));
+    const nextFlips = new Map<string, number>();
+    const moved = new Set<string>();
+    const glows = new Set<string>();
+    let matched = false;
+    waiting.moves = waiting.moves.filter((move) => {
+        const at = indexOf.get(move.to);
+        const top = at === undefined ? null : at * rowHeight.value;
+        if (move.from === move.to) {
+            // 调整顺序：同一行换了位置才算到了，位置的过渡由窗口给。
+            if (top === null || top === move.fromTop) return true;
+            glows.add(move.to);
+        } else if (top !== null) {
+            if (move.fromTop !== null) nextFlips.set(move.to, move.fromTop - top);
+            moved.add(move.to);
+            glows.add(move.to);
+        } else if (!indexOf.has(move.from) && !opened(move.to, rows, indexOf)) {
+            const shown = nearestShown(move.to, indexOf);
+            if (shown !== null) glows.add(shown);
+        } else return true;
+        matched = true;
+        return false;
+    });
+    for (const address of [...waiting.arrivals]) {
+        if (!indexOf.has(address)) continue;
+        waiting.arrivals.delete(address);
+        glows.add(address);
+        matched = true;
+    }
+    for (const address of [...waiting.departures]) {
+        if (indexOf.has(address)) continue;
+        waiting.departures.delete(address);
+        matched = true;
+    }
+    if (waiting.moves.length === 0 && waiting.arrivals.size === 0 && waiting.departures.size === 0) pending = null;
+    if (!matched) return;
+    pulseMotion();
+    if (nextFlips.size > 0) {
+        flips.value = nextFlips;
+        movedIds.value = new Set([...movedIds.value, ...moved]);
+        // 隔两帧再撤：带着原位置的那一帧要先算过样式，撤掉时才有过渡的起点。
+        void nextTick(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+            flips.value = new Map();
+        })));
+    }
+    if (glows.size > 0) {
+        glowIds.value = glows;
+        if (glowTimer !== null) clearTimeout(glowTimer);
+        glowTimer = setTimeout(() => {
+            glowIds.value = new Set();
+            movedIds.value = new Set();
+            glowTimer = null;
+        }, motionMs("--motion-base") * 3 + MOTION_SLACK_MS);
+    }
+});
+/** 地址的父目录行在列表里且展开着：新行迟早会列出来（两个目录的刷新先后到达），接着等。 */
+function opened(address: string, rows: ReadonlyArray<Row>, indexOf: ReadonlyMap<string, number>): boolean {
+    const parent = parentAddress(address);
+    const at = parent === null ? undefined : indexOf.get(parent);
+    const row = at === undefined ? undefined : rows[at];
+    return row !== undefined && (row.kind === "root" || row.kind === "entry") && row.expanded;
+}
+/** 地址最近的、正在列表里的上级目录行（放进收起的目录时亮它）。 */
+function nearestShown(address: string, indexOf: ReadonlyMap<string, number>): string | null {
+    for (let current = parentAddress(address); current !== null; current = parentAddress(current)) if (indexOf.has(current)) return current;
+    return null;
+}
+/** 移动的原地址的行离开时直接隐去，免得与滑过来的新行同时出现。 */
+const onRowLeave = (element: Element): void => {
+    const id = (element as HTMLElement).dataset.explorerRow;
+    if (id !== undefined && vanishing.has(id)) (element as HTMLElement).style.visibility = "hidden";
+};
+const rowMotionStyle = (id: string): Record<string, string> => {
+    const offset = flips.value.get(id);
+    return offset === undefined ? {} : {transform: `translateY(${String(offset)}px)`, transition: "none"};
+};
 onBeforeUnmount(() => {
-    if (expandingTimer !== null) clearTimeout(expandingTimer);
+    for (const timer of [movingTimer, pendingTimer, glowTimer, returnTimer]) if (timer !== null) clearTimeout(timer);
 });
+
+/**
+ * 取消时飞回原行的拖影（docs/specs/workbench/files-explorer.md 的“动画”）：从松手处移到第一个源行再淡出，之后卸载。源行不在
+ * 渲染范围里时原地淡出。在拖影被收起之前（取消与放下的回调里）调用。
+ */
+const returning = ref<{readonly what: string; x: number; y: number; flying: boolean} | null>(null);
+let returnTimer: ReturnType<typeof setTimeout> | null = null;
+function flyBack(): void {
+    const from = ghost.value;
+    const duration = motionMs("--motion-base");
+    const first = props.drag?.sources[0];
+    if (from === null || duration <= 0 || root.value === null || first === undefined) return;
+    const element = root.value.querySelector<HTMLElement>(`[data-explorer-row="${CSS.escape(first)}"]`);
+    const rect = element?.getBoundingClientRect();
+    const depth = props.rows.find((row) => row.id === first)?.depth ?? 0;
+    const to = rect === undefined ? {x: from.x, y: from.y} : {x: rect.left + LEVEL_X(depth) + 12, y: rect.top};
+    returning.value = {what: from.what, x: from.x, y: from.y, flying: false};
+    void nextTick(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (returning.value !== null) returning.value = {...returning.value, ...to, flying: true};
+    })));
+    if (returnTimer !== null) clearTimeout(returnTimer);
+    returnTimer = setTimeout(() => {
+        returning.value = null;
+        returnTimer = null;
+    }, duration * 2 + MOTION_SLACK_MS);
+}
+
 // 控制器结束了这场拖动（切换显示、源或落点失效）：手势随之收场。
 watch(() => props.drag == null, (ended) => {
     if (!ended) return;
     hovered.value = null;
+    pointer.value = null;
+    clearExpand();
     gesture?.abort();
 });
 // 行变了而指针没动：指针下已经不是显示的那一行，撤下落点。
 watch(() => props.rows, () => gesture?.invalidate());
 
+/** 在编辑组打开：画整个编辑组（树外，用编辑区共用的反馈层）。 */
 const dropPreview = computed((): DropFeedbackPreview | null => {
     const action = props.drag?.action;
-    const over = hovered.value;
-    if (action === undefined || action.kind === "none" || over === null) return null;
-    const {left, right, top, bottom} = over.rect;
-    if (action.kind === "move") return {areaRect: {left, right, top, bottom}, entryRect: null, indicator: null, orientation: "vertical"};
-    const edge = action.zone === "before" ? top : bottom;
-    return {areaRect: null, entryRect: null, indicator: {left, right, top: edge - 1, bottom: edge + 1}, orientation: "vertical"};
+    const at = hovered.value;
+    if (action?.kind !== "open" || at === null) return null;
+    const {left, right, top, bottom} = at.rect;
+    return {areaRect: {left, right, top, bottom}, entryRect: null, indicator: null, orientation: "vertical"};
 });
+
+/** 缩进：与 `ExplorerRow` 的行内边距一致，第 d 层展开箭头的中线在行左边 16 + 12d 处。 */
+const LEVEL_X = (depth: number): number => 16 + depth * 12;
+
+/** 一行与它展开的全部子孙在行列表里占的范围（行内容坐标，与行的 `top` 同一坐标系）。 */
+const bandOf = (id: string): {readonly top: number; readonly height: number} | null => {
+    const first = props.rows.findIndex((row) => row.id === id);
+    if (first < 0) return null;
+    const depth = (props.rows[first] as Row).depth;
+    let last = first;
+    while (last + 1 < props.rows.length && (props.rows[last + 1] as Row).depth > depth) last += 1;
+    return {top: first * rowHeight.value, height: (last - first + 1) * rowHeight.value};
+};
+
+/**
+ * 树里的落点反馈（docs/specs/workbench/files-explorer.md 的“拖动”）：画在行的坐标系里，跟着行滚动、与行左右对齐。移入画
+ * 目标目录的整段浅底、目录行再深一档；调整顺序与放到某个位置画缩进到落点那一层的插入线，接收目录的整段铺很浅的底。
+ */
+const dropMarks = computed(() => {
+    const action = props.drag?.action;
+    if (action === undefined || hovered.value === null) return null;
+    if (action.kind === "move") {
+        const band = bandOf(action.target);
+        return band === null ? null : {kind: action.kind, band, header: {top: band.top, height: rowHeight.value}, line: null};
+    }
+    if (action.kind === "reorder" || action.kind === "place") {
+        const under = props.rows.findIndex((row) => row.id === action.line.row);
+        if (under < 0) return null;
+        const band = bandOf(action.kind === "reorder" ? action.parent : action.target);
+        return {kind: action.kind, band, header: null, line: {top: (under + 1) * rowHeight.value, left: LEVEL_X(action.line.depth)}};
+    }
+    return null;
+});
+
+const nameOfRow = (id: string): string => {
+    const row = props.rows.find((candidate) => candidate.id === id);
+    if (row?.kind === "entry") return displayLabel(row, props.hideMarkdownExtension === true);
+    if (row?.kind === "root") return row.scheme === "project" ? (props.projectTitle ?? explorerText(props.locale, "projectRoot")) : explorerText(props.locale, "userRoot");
+    return id;
+};
+
+/** 跟着指针的说明：动作（移入哪里、放到谁的前后、在这一组打开）；没有落点时只写被拖的东西。 */
 const dropLabel = computed(() => {
     const action = props.drag?.action;
     if (action === undefined || action.kind === "none") return "";
-    if (action.kind === "reorder") return explorerText(props.locale, "dropReorder");
-    const row = props.rows.find((candidate) => candidate.id === action.target);
-    const name = row?.kind === "entry" ? row.label : row?.kind === "root" ? (row.scheme === "project" ? (props.projectTitle ?? explorerText(props.locale, "projectRoot")) : explorerText(props.locale, "userRoot")) : action.target;
-    return explorerText(props.locale, "dropInto", {name});
+    if (action.kind === "open") return explorerText(props.locale, action.skipped > 0 ? "dropOpenSome" : "dropOpen", {count: String(action.addresses.length), skipped: String(action.skipped)});
+    if (action.kind === "move") return explorerText(props.locale, action.ordered ? "dropIntoLast" : "dropInto", {name: nameOfRow(action.target)});
+    const name = nameOfRow(action.anchor.id);
+    // 换了接收目录（有源不在这一层）才说移入哪里。
+    const into = action.kind === "place" && (props.drag?.sources ?? []).some((source) => parentOf(source) !== action.target);
+    if (into) return explorerText(props.locale, action.anchor.side === "after" ? "dropAfterInto" : "dropBeforeInto", {name, target: nameOfRow(action.target)});
+    return explorerText(props.locale, action.anchor.side === "after" ? "dropAfter" : "dropBefore", {name});
 });
+/** 行 id 的父目录：资源行带着；源都是资源行。 */
+const parentOf = (id: string): string | null => {
+    const row = props.rows.find((candidate) => candidate.id === id);
+    return row?.kind === "entry" ? row.parent : null;
+};
+
+/** 拖影：指针右侧偏下的小浮块，写被拖的名字（多项写“N 项”）与动作；贴近指针，又不挡住指针所指那一行的名字开头。 */
+const ghost = computed(() => {
+    const sources = props.drag?.sources;
+    const at = pointer.value;
+    if (sources === undefined || sources.length === 0 || at === null) return null;
+    const what = sources.length === 1 ? nameOfRow(sources[0] as string) : explorerText(props.locale, "dragItems", {count: String(sources.length)});
+    return {x: at.x + 12, y: at.y + 4, what, action: dropLabel.value};
+});
+
+const dragSources = computed(() => new Set(props.drag?.sources ?? []));
 
 defineExpose({focus: focusTree});
 </script>
@@ -280,22 +582,23 @@ defineExpose({focus: focusTree});
         :aria-label="label"
         :aria-activedescendant="activeDescendant"
         class="explorer-tree relative h-full min-h-0 overflow-y-auto overflow-x-hidden outline-none"
-        :style="{'--explorer-row-height': `${String(rowHeight)}px`}"
+        :style="{'--explorer-row-height': `${String(rowHeight)}px`, '--explorer-expand-delay': `${String(EXPAND_HOVER_MS)}ms`}"
         data-explorer-tree
-        :data-expanding="expanding ? '' : undefined"
+        :data-motion="moving ? '' : undefined"
+        :data-guides="indentGuides ?? 'hover'"
         @scroll="onScroll"
         @keydown="onKeydown"
         @focus="onFocus"
         @blur="onBlur"
     >
         <div ref="probe" class="nb-ui-control-h-sm pointer-events-none invisible absolute left-0 top-0 w-px" aria-hidden="true"></div>
-        <TransitionGroup name="explorer-row" tag="div" class="relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}">
+        <TransitionGroup name="explorer-row" tag="div" class="explorer-tree__rows relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}" data-explorer-rows @before-leave="onRowLeave">
             <!-- 行左右留出视图外框给的内边距（nbook 是 6px）：悬停与选中的底色是圆角块，不贴着侧栏的边，块边与别的视图的内容边对齐。 -->
             <ExplorerRow
                 v-for="item in rendered"
                 :key="item.row.id"
                 class="explorer-tree__row absolute"
-                :style="{top: `${String(item.index * rowHeight)}px`}"
+                :style="{top: `${String(item.index * rowHeight)}px`, ...rowMotionStyle(item.row.id)}"
                 :row="item.row"
                 :locale="locale"
                 :project-title="projectTitle ?? null"
@@ -304,16 +607,50 @@ defineExpose({focus: focusTree});
                 :active="treeFocused && item.row.id === focus"
                 :height="rowHeight"
                 :edit="editing != null && editing.id === item.row.id ? editing : null"
+                :hide-markdown-extension="hideMarkdownExtension === true"
+                :guide-active="guideActiveAt(item.index)"
+                :data-explorer-drag-source="dragSources.has(item.row.id) ? '' : undefined"
+                :data-motion-moved="movedIds.has(item.row.id) ? '' : undefined"
+                :data-motion-glow="glowIds.has(item.row.id) ? '' : undefined"
+                :data-expand-pending="expandPending === item.row.id ? '' : undefined"
                 @edit-input="(name) => emit('edit-input', name)"
                 @edit-commit="emit('edit-commit')"
                 @edit-cancel="emit('edit-cancel')"
                 @press="(event, part) => press(item.row, event, part)"
                 @activate="(item.row.kind === 'root' || item.row.kind === 'entry') && emit('row-activate', item.row.id)"
                 @context="(event) => context(item.row, event)"
-                @retry="item.row.kind === 'status' && emit('retry', item.row.parent)"
+                @retry="item.row.kind !== 'edit' && emit('retry', item.row.id)"
             />
         </TransitionGroup>
-        <DropFeedbackOverlay :preview="dropPreview" :label="dropLabel" :data-explorer-drop="drag?.action.kind" />
+        <div
+            v-if="dropMarks"
+            class="explorer-drop pointer-events-none absolute top-0"
+            aria-hidden="true"
+            :data-explorer-drop="dropMarks.kind"
+        >
+            <div v-if="dropMarks.band" class="explorer-drop__band" :data-kind="dropMarks.kind" :style="{top: `${dropMarks.band.top}px`, height: `${dropMarks.band.height}px`}" data-explorer-drop-band></div>
+            <div v-if="dropMarks.header" class="explorer-drop__header" :style="{top: `${dropMarks.header.top}px`, height: `${dropMarks.header.height}px`}"></div>
+            <div v-if="dropMarks.line" class="explorer-drop__line" :style="{top: `${dropMarks.line.top - 1}px`, left: `${dropMarks.line.left}px`}" data-explorer-drop-line></div>
+        </div>
+        <DropFeedbackOverlay :preview="dropPreview" label="" :data-explorer-drop="dropPreview ? 'open' : undefined" />
+        <Teleport to="body">
+            <div v-if="ghost" class="explorer-drag-ghost" :style="{left: `${ghost.x}px`, top: `${ghost.y}px`}" aria-hidden="true" data-explorer-drag-ghost>
+                <div class="truncate font-medium">{{ ghost.what }}</div>
+                <div v-if="ghost.action" class="truncate text-[var(--text-muted)]" data-explorer-drag-action>{{ ghost.action }}</div>
+            </div>
+            <div
+                v-if="returning"
+                class="explorer-drag-ghost explorer-drag-ghost--returning"
+                :data-flying="returning.flying ? '' : undefined"
+                :style="{left: `${returning.x}px`, top: `${returning.y}px`}"
+                aria-hidden="true"
+                data-explorer-drag-return
+            >
+                <div class="truncate font-medium">{{ returning.what }}</div>
+            </div>
+            <!-- 读屏播报落点动作：反馈层自己的标签不用（说明画在拖影里），播报放在这里。 -->
+            <span class="explorer-drag-live" aria-live="polite" aria-atomic="true" data-explorer-drop-live>{{ drag ? dropLabel : "" }}</span>
+        </Teleport>
     </div>
 </template>
 
@@ -327,14 +664,161 @@ defineExpose({focus: focusTree});
     cursor: grabbing;
 }
 
-.explorer-tree[data-expanding] .explorer-tree__row {
+/* 被拖的行淡化图标与文字，看得出拖走的是哪几行；缩进参考线不淡，竖线上不留缺口。起拖与结束时渐变。 */
+.explorer-tree__row > :deep(:not(.explorer-guide)) {
+    transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.explorer-tree__row[data-explorer-drag-source] > :deep(:not(.explorer-guide)) {
+    opacity: 0.45;
+}
+
+/*
+ * 落点反馈与行同一坐标系：浅底在行的下面（不压字），插入线在行的上面。行容器是 z-index 1 的层，反馈层不建层，浅底 0、
+ * 插入线 2 与它比较。
+ */
+.explorer-tree__rows {
+    z-index: 1;
+}
+
+.explorer-drop {
+    left: var(--view-inset-inline, 6px);
+    right: var(--view-inset-inline, 6px);
+}
+
+.explorer-drop__band,
+.explorer-drop__header {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 0;
+    border-radius: var(--radius-control);
+}
+
+.explorer-drop__band {
+    background: color-mix(in srgb, var(--accent-main) 9%, transparent);
+}
+
+/* 调整顺序与放到某个位置时，接收目录的浅底更浅：主角是插入线。 */
+.explorer-drop__band:not([data-kind="move"]) {
+    background: color-mix(in srgb, var(--accent-main) 7%, transparent);
+}
+
+.explorer-drop__header {
+    background: color-mix(in srgb, var(--accent-main) 9%, transparent);
+}
+
+.explorer-drop__line {
+    position: absolute;
+    right: 0;
+    z-index: 2;
+    height: 2px;
+    margin-left: 3px;
+    border-radius: 999px;
+    background: var(--accent-main);
+}
+
+/* 左端的空心圆标出层级：圆心在那一层展开箭头的中线上。 */
+.explorer-drop__line::before {
+    content: "";
+    position: absolute;
+    left: -7px;
+    top: -3px;
+    width: 8px;
+    height: 8px;
+    box-sizing: border-box;
+    border: 2px solid var(--accent-main);
+    border-radius: 50%;
+    background: var(--bg-panel, var(--bg-app));
+}
+
+.explorer-drag-live {
+    position: fixed;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* 拖影：跟着指针、不挡指针下的命中，画在最上层。 */
+.explorer-drag-ghost {
+    position: fixed;
+    z-index: 9500;
+    max-width: 260px;
+    padding: 4px 8px;
+    border-radius: var(--radius-control);
+    border: var(--border-w) solid var(--panel-outline);
+    background: var(--bg-panel);
+    box-shadow: var(--elevation-menu, var(--elevation-popover));
+    color: var(--text-main);
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+    animation: explorer-ghost-in var(--motion-fast) var(--ease-standard);
+}
+
+/* 起拖：拖影从略小放大并淡入。 */
+@keyframes explorer-ghost-in {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+}
+
+/* 取消：拖影移回第一个源行，到了再淡出。 */
+.explorer-drag-ghost--returning {
+    animation: none;
+}
+
+.explorer-drag-ghost--returning[data-flying] {
+    opacity: 0;
+    transition: left var(--motion-base) var(--ease-standard), top var(--motion-base) var(--ease-standard), opacity var(--motion-fast) var(--ease-standard) var(--motion-base);
+}
+
+.explorer-tree[data-motion] .explorer-tree__row {
     transition: top var(--motion-base) var(--ease-standard), opacity var(--motion-base) var(--ease-standard), transform var(--motion-base) var(--ease-standard), background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 
-.explorer-tree[data-expanding] .explorer-row-enter-from,
-.explorer-tree[data-expanding] .explorer-row-leave-to {
+/* 从原位置滑过来的行不放进场动画：它的起点是原位置，不是上方一行。 */
+.explorer-tree[data-motion] .explorer-row-enter-from:not([data-motion-moved]),
+.explorer-tree[data-motion] .explorer-row-leave-to {
     opacity: 0;
     transform: translateY(calc(-1 * var(--explorer-row-height)));
+}
+
+/* 放下、新建与粘贴后亮一下：盖一层强调色再淡去，不动行自己的底色（选中、悬停）。 */
+.explorer-tree__row[data-motion-glow]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--accent-main) 24%, transparent);
+    pointer-events: none;
+    opacity: 0;
+    animation: explorer-glow calc(var(--motion-base) * 3) var(--ease-standard);
+}
+
+@keyframes explorer-glow {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+/* 停留展开的计时里箭头匀速转到朝下，转完正好展开；计时取消时按箭头自己的过渡转回。 */
+.explorer-tree__row[data-expand-pending] :deep([data-explorer-twisty] > span) {
+    transform: rotate(90deg);
+    transition: transform var(--explorer-expand-delay) linear;
+}
+
+/* 缩进参考线的显示（行里的 `.explorer-guide` 读这个变量）：悬停档在鼠标位于树上或树里有焦点时显示。 */
+.explorer-tree[data-guides="always"],
+.explorer-tree[data-guides="hover"]:hover,
+.explorer-tree[data-guides="hover"]:focus-within {
+    --explorer-guide-opacity: 1;
 }
 
 .explorer-tree {

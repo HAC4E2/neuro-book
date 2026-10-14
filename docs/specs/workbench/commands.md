@@ -207,6 +207,11 @@ owners:
 | `nbook.files.drop-entry` | 从清单移除 / Remove from Manifest | `nbook.explorer/canEditManifest` | write | — |
 | `nbook.files.clear-cut` | 清除剪切标记 / Clear Cut | — | read | Escape |
 | `nbook.files.reveal` | 在资源管理器中显示 / Reveal in Explorer | — | read | — |
+| `nbook.files.retry-list` | 重试 / Retry | — | read | — |
+| `nbook.files.open` | 打开 / Open | `nbook.explorer/hasSelection` | read | Enter（打开焦点行） |
+| `nbook.files.open-to-side` | 在侧边打开 / Open to the Side | `nbook.explorer/hasSelection` | read | `Mod+Enter` |
+| `nbook.files.copy-path` | 复制路径 / Copy Path | `nbook.explorer/hasSelection` | read | — |
+| `nbook.files.copy-relative-path` | 复制相对路径 / Copy Relative Path | `nbook.explorer/hasSelection` | read | — |
 
 - 树内按键不是命令声明里的默认键位：由资源管理器的树在自己拥有焦点时处理并执行这条命令（宿主的键位分发是全局的，`Delete` 不能在树之外删文件）。从命令面板执行时作用于当前选择，不要求树有焦点。
 - 资源管理器尚未打开时为 `unavailable`；需要界面输入的命令（新建、改名、展示名、带碰撞的粘贴、删除）还要求视图已挂上且可见。

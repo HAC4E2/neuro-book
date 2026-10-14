@@ -31,16 +31,29 @@ const ORDER = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 
 /** 大目录的文件数：远多于一屏，看虚拟滚动与焦点行。 */
+const PLACE = `<?xml version="1.0" encoding="UTF-8"?>
+<content>
+  <item name="p1">
+    <item name="k1.md"/>
+    <item name="k2.md"/>
+  </item>
+  <item name="p2.md"/>
+  <item name="p3.md"/>
+</content>
+`;
+
 const MANY = 400;
 
 let tmp = "";
 let projectDir = "";
+let stateDir = "";
 let server: ProductServer;
 
 test.beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "files-explorer");
     projectDir = join(tmp, "Book");
     const stateRoot = join(tmp, "state");
+    stateDir = stateRoot;
     const id = randomUUID();
     const files: Record<string, string> = {
         ".nbook/project.json": JSON.stringify({schema: 1, id}),
@@ -59,10 +72,31 @@ test.beforeAll(async () => {
         "moves/m2.md": "M2",
         "moves/into/i.md": "I",
         "moves/keep/k.md": "K2",
+        "drags/d1.md": "D1",
+        "drags/d2.md": "D2",
+        "drags/shut/s.md": "S",
+        "drags/folder/f.md": "F",
+        "卷/第二卷/a.md": "A2",
+        "卷/第一卷/a.md": "A1",
+        "卷/第十二章.md": "12",
+        "卷/第三章.md": "3",
         "order.content/content.xml": ORDER,
         "order.content/x/index.md": "X",
         "order.content/y/index.md": "Y",
         "order.content/z/index.md": "Z",
+        "r4/place.content/content.xml": PLACE,
+        "r4/place.content/p1/index.md": "P1",
+        "r4/place.content/p1/k1.md": "K1",
+        "r4/place.content/p1/k2.md": "K2",
+        "r4/place.content/p2.md": "P2",
+        "r4/place.content/p3.md": "P3",
+        "r4/loose/w.md": "W",
+        "r4/anim/open/o.md": "O",
+        "r4/anim/box/b.md": "B",
+        "r4/anim/a1.md": "A1",
+        "r4/anim/a2.md": "A2",
+        "r4/anim/a3.md": "A3",
+        "r4/anim/a4.md": "A4",
         ...Object.fromEntries(Array.from({length: MANY}, (_, index) => [`big/file-${String(index).padStart(4, "0")}.md`, String(index)])),
     };
     for (const [path, text] of Object.entries(files)) {
@@ -107,10 +141,10 @@ test("项目根是作品名、标题行五个动作；展开时新行滑下淡�
         new MutationObserver((records) => {
             for (const changed of records) {
                 const target = changed.target as Element;
-                if (changed.attributeName === "data-expanding") log.push(target.hasAttribute("data-expanding") ? "on" : "off");
+                if (changed.attributeName === "data-motion") log.push(target.hasAttribute("data-motion") ? "on" : "off");
                 else if (target.classList.contains("explorer-row-enter-active") && !log.includes("enter")) log.push("enter");
             }
-        }).observe(treeElement, {subtree: true, attributes: true, attributeFilter: ["data-expanding", "class"]});
+        }).observe(treeElement, {subtree: true, attributes: true, attributeFilter: ["data-motion", "class"]});
     });
     const log = () => page.evaluate(() => (window as unknown as {__expanding: string[]}).__expanding);
     await record();
@@ -143,10 +177,10 @@ test("三类文件夹按呈现规则显示；点普通目录展开、点文件�
     await expect(item(page, "user://")).toHaveAttribute("aria-expanded", "false");
     await item(page, "project://lore.content").click();
     await expect(item(page, "project://lore.content/alice")).toContainText("爱丽丝");
-    await expect(item(page, "project://lore.content/alice")).toContainText("无正文");
+    await expect(item(page, "project://lore.content/alice")).toHaveAttribute("aria-description", /无正文/u);
     await expect(item(page, "project://lore.content/bob")).toContainText("鲍勃");
     await expect(item(page, "project://lore.content/content.xml")).toHaveCount(0);
-    await expect(item(page, "project://story.binder")).toContainText("需要剧情插件");
+    await expect(item(page, "project://story.binder")).toHaveAttribute("aria-description", /需要剧情插件/u);
     await item(page, "project://plain").click();
     await expect(item(page, "project://plain/index.md")).toBeVisible();
     await item(page, "project://plain/a.md").click();
@@ -308,7 +342,7 @@ test("只用键盘：创建内容、修改展示名、加入清单、上移，�
     await pick(page, "project://lore.content/alice");
     await menuByKeyboard(page, "创建内容");
     await expect.poll(() => exists(join(projectDir, "lore.content", "alice", "index.md"))).toBe(true);
-    await expect(item(page, "project://lore.content/alice")).not.toContainText("无正文");
+    await expect(item(page, "project://lore.content/alice")).not.toHaveAttribute("aria-description", /无正文/u);
 
     await menuByKeyboard(page, "修改展示名与图标");
     const title = page.getByRole("dialog").locator("[data-explorer-display-title] input, input[data-explorer-display-title]").first();
@@ -323,7 +357,7 @@ test("只用键盘：创建内容、修改展示名、加入清单、上移，�
     await pick(page, "project://lore.content/stray.md");
     await menuByKeyboard(page, "加入清单");
     await expect.poll(manifest).toContain('name="stray.md"');
-    await expect(item(page, "project://lore.content/stray.md")).not.toContainText("未列入");
+    await expect(item(page, "project://lore.content/stray.md")).not.toHaveAttribute("aria-description", /未列入/u);
 
     await page.keyboard.press("Alt+ArrowUp");
     await expect.poll(async () => [...(await manifest()).matchAll(/name="([^"]+)"/gu)].map((match) => match[1])).toEqual(["alice", "stray.md", "bob"]);
@@ -407,7 +441,7 @@ const center = async (page: Page, address: string): Promise<{x: number; y: numbe
 /** 在一行上按下并越过拖动门槛，停在另一行的 `offset`（相对行高的比例）处，不松手。 */
 async function dragOver(page: Page, from: string, to: string, offset = 0.5): Promise<void> {
     // 刚展开的目录里行还在滑动：先等动画走完再量位置，否则按下时指针下面已经换成别的行。
-    await expect(page.locator("[data-explorer-tree]")).not.toHaveAttribute("data-expanding");
+    await expect(page.locator("[data-explorer-tree]")).not.toHaveAttribute("data-motion");
     const start = await center(page, from);
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
@@ -431,9 +465,9 @@ test("拖动：移入目录显示“移入”反馈并移动；内容文件夹�
     await item(page, "project://moves").click();
     await expect(item(page, "project://moves/m1.md")).toBeVisible();
     await dragOver(page, "project://moves/m1.md", "project://moves/into");
-    const feedback = page.locator("[data-explorer-drop=\"move\"]");
+    const feedback = page.locator("[data-explorer-drop=\"move\"] [data-explorer-drop-band]");
     await expect(feedback).toBeVisible();
-    await expect(page.locator("[data-drop-feedback-live]")).toHaveText("移入 into");
+    await expect(page.locator("[data-explorer-drop-live]")).toHaveText("移入 into");
     await page.mouse.up();
     await expect(feedback).toHaveCount(0);
     await expect.poll(() => exists(join(projectDir, "moves", "into", "m1.md"))).toBe(true);
@@ -444,12 +478,268 @@ test("拖动：移入目录显示“移入”反馈并移动；内容文件夹�
     await item(page, "project://order.content").click();
     await expect(item(page, "project://order.content/z")).toBeVisible();
     await dragOver(page, "project://order.content/z", "project://order.content/x", 0.1);
-    await expect(page.locator("[data-explorer-drop=\"reorder\"]")).toBeVisible();
+    await expect(page.locator("[data-explorer-drop=\"reorder\"] [data-explorer-drop-line]")).toBeVisible();
     await page.mouse.up();
     await expect.poll(order).toEqual(["z", "x", "y"]);
     expect(await readFile(join(projectDir, "order.content", "z", "index.md"), "utf8")).toBe("Z");
     await item(page, "project://order.content").click();
     await item(page, "project://moves").click();
+});
+
+test("拖动（验收 25、26）：拖到别的文件夹里的文件上移入它的文件夹，拖影写着名字、源行淡化；停在收起的目录上展开；拖到空白移入根；拖到编辑组在那一组打开；靠下边缘自动滚动", async ({page}) => {
+    await open(page);
+    await item(page, "project://drags").click();
+    await item(page, "project://plain").click();
+    await expect(item(page, "project://plain/a.md")).toBeVisible();
+
+    // 拖到 plain 里的文件 a.md 上：移入 plain，整个 plain 的范围画浅底，拖影跟着指针。
+    await dragOver(page, "project://drags/d1.md", "project://plain/a.md", 0.7);
+    await expect(page.locator("[data-explorer-drop=\"move\"] [data-explorer-drop-band]")).toBeVisible();
+    await expect(page.locator("[data-explorer-drop-live]")).toHaveText("移入 plain");
+    await expect(page.locator("[data-explorer-drag-ghost]")).toContainText("d1.md");
+    await expect(page.locator("[data-explorer-drag-ghost]")).toContainText("移入 plain");
+    await expect(item(page, "project://drags/d1.md")).toHaveAttribute("data-explorer-drag-source", "");
+    await page.mouse.up();
+    await expect(page.locator("[data-explorer-drag-ghost]")).toHaveCount(0);
+    await expect.poll(() => exists(join(projectDir, "plain", "d1.md"))).toBe(true);
+
+    // 停在收起的 shut 中段：600 毫秒后展开，再落到它里面的文件上。
+    await expect(item(page, "project://drags/shut")).toHaveAttribute("aria-expanded", "false");
+    await dragOver(page, "project://drags/d2.md", "project://drags/shut");
+    await expect(item(page, "project://drags/shut")).toHaveAttribute("aria-expanded", "true");
+    await expect(item(page, "project://drags/shut/s.md")).toBeVisible();
+    const inner = await center(page, "project://drags/shut/s.md");
+    await page.mouse.move(inner.x, inner.y + 4, {steps: 3});
+    await expect(page.locator("[data-explorer-drop-live]")).toHaveText("移入 shut");
+    await page.mouse.up();
+    await expect.poll(() => exists(join(projectDir, "drags", "shut", "d2.md"))).toBe(true);
+
+    // 树里最后一行之下的空白：移入项目根。
+    await item(page, "project://drags/folder").click();
+    await expect(item(page, "project://drags/folder/f.md")).toBeVisible();
+    // 先让之前的移动引起的刷新都落地：拖动中树变了会撤下落点、放下不写（这是规则，不是这里要测的）。
+    await barrier(page, "drags");
+    const treeBox = await tree(page).boundingBox();
+    if (treeBox === null) throw new Error("树不在页面上");
+    const start = await center(page, "project://drags/folder/f.md");
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x, start.y + 8, {steps: 2});
+    // 最后一行之下一点：行数随场地变，按行容器的底边算，不按树的高度。
+    const rowsBox = await page.locator("[data-explorer-rows]").boundingBox();
+    if (rowsBox === null || rowsBox.y + rowsBox.height + 30 > treeBox.y + treeBox.height) throw new Error("树里没有留出空白");
+    await page.mouse.move(start.x, rowsBox.y + rowsBox.height + 20, {steps: 6});
+    await expect(page.locator("[data-explorer-drop-live]")).toHaveText("移入 Book");
+    await page.mouse.up();
+    await expect.poll(() => exists(join(projectDir, "f.md"))).toBe(true);
+
+    // 拖到编辑组：在那一组以正式标签打开，不移动文件。
+    await expect(item(page, "project://plain/d1.md")).toBeVisible();
+    await barrier(page, "plain");
+    const group = page.locator("[data-editor-group]").first();
+    const groupBox = await group.boundingBox();
+    if (groupBox === null) throw new Error("编辑组不在页面上");
+    const from = await center(page, "project://plain/d1.md");
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x, from.y + 8, {steps: 2});
+    await page.mouse.move(groupBox.x + groupBox.width / 2, groupBox.y + groupBox.height / 2, {steps: 8});
+    await expect(page.locator("[data-explorer-drop=\"open\"]")).toBeVisible();
+    await page.mouse.up();
+    await expect(page.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("d1.md");
+    await expect(page.locator("[data-editor-tab][aria-selected=\"true\"]")).not.toHaveAttribute("data-editor-tab-preview", "");
+    expect(await readFile(join(projectDir, "plain", "d1.md"), "utf8")).toBe("D1");
+
+    // 靠树的下边缘：自己往下滚。
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+    await item(page, "project://big").click();
+    await expect(item(page, "project://big/file-0003.md")).toBeVisible();
+    await barrier(page, "big");
+    await item(page, "project://big/file-0003.md").scrollIntoViewIfNeeded();
+    const before = await tree(page).evaluate((element) => element.scrollTop);
+    const first = await center(page, "project://big/file-0003.md");
+    await page.mouse.move(first.x, first.y);
+    await page.mouse.down();
+    await page.mouse.move(first.x, first.y + 8, {steps: 2});
+    await page.mouse.move(first.x, treeBox.y + treeBox.height - 6, {steps: 6});
+    await expect.poll(() => tree(page).evaluate((element) => element.scrollTop)).toBeGreaterThan(before + 100);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
+test("行的样子与设置（验收 21、23）：中文数字排序、内容文件夹去后缀、叶子节点没有展开控件、有类型图标；改设置后参考线与隐藏 .md 即时生效", async ({page}) => {
+    await open(page);
+    await item(page, "project://卷").click();
+    await expect(item(page, "project://卷/第三章.md")).toBeVisible();
+    const names = await page.locator("[data-explorer-row^=\"project://卷/\"]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-explorer-row")));
+    expect(names).toEqual(["project://卷/第一卷", "project://卷/第二卷", "project://卷/第三章.md", "project://卷/第十二章.md"]);
+    await expect(item(page, "project://卷/第三章.md").locator("[data-file-icon]")).toHaveAttribute("data-icon", "markdown");
+
+    await item(page, "project://lore.content").click();
+    await expect(item(page, "project://lore.content").locator("[data-explorer-label]")).toHaveText("lore");
+    await expect(item(page, "project://lore.content").locator("[data-explorer-subtitle]")).toHaveText(".content");
+    // bob 里只有正文：叶子，没有展开控件；alice 另有文件，可展开。
+    await expect(item(page, "project://lore.content/bob")).not.toHaveAttribute("aria-expanded");
+    await expect(item(page, "project://lore.content/alice")).toHaveAttribute("aria-expanded", "false");
+
+    // 设置写进用户层的 settings.json：一直显示参考线、隐藏 .md；改回缺省后复原。
+    await expect(tree(page)).toHaveAttribute("data-guides", "hover");
+    await writeFile(join(stateDir, "settings.json"), JSON.stringify({"nbook.explorer/indentGuides": "always", "nbook.explorer/hideMarkdownExtension": true}));
+    await expect(tree(page)).toHaveAttribute("data-guides", "always");
+    await expect(item(page, "project://卷/第三章.md").locator("[data-explorer-label]")).toHaveText("第三章");
+    await expect(item(page, "project://卷/第一卷/a.md")).toHaveCount(0);
+    await writeFile(join(stateDir, "settings.json"), "{}");
+    await expect(tree(page)).toHaveAttribute("data-guides", "hover");
+    await expect(item(page, "project://卷/第三章.md").locator("[data-explorer-label]")).toHaveText("第三章.md");
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
+test("右键菜单（验收 24、26）：在侧边打开拆出右边的组；复制相对路径写进系统剪贴板；把文件拖到右边的组在那一组打开", async ({page, context}) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await open(page);
+    await item(page, "project://plain").click();
+    await expect(item(page, "project://plain/index.md")).toBeVisible();
+
+    await item(page, "project://plain/index.md").click({button: "right"});
+    await page.getByRole("menuitem", {name: "复制相对路径"}).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("plain/index.md");
+
+    const groups = page.locator("[data-editor-group]");
+    const before = await groups.count();
+    await item(page, "project://plain/index.md").click({button: "right"});
+    await page.getByRole("menuitem", {name: /在侧边打开/u}).click();
+    await expect(groups).toHaveCount(before + 1);
+    await expect(page.locator("[data-editor-group-active] [data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("index.md");
+
+    // 把另一个文件拖到右边的组（不是活动组的那一个也行）：在那一组打开、它成为活动组。
+    const right = groups.last();
+    const box = await right.boundingBox();
+    if (box === null) throw new Error("右边的组不在页面上");
+    const from = await center(page, "project://plain/a.md");
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x, from.y + 8, {steps: 2});
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 8});
+    await expect(page.locator("[data-explorer-drop=\"open\"]")).toBeVisible();
+    await page.mouse.up();
+    await expect(right).toHaveAttribute("data-editor-group-active", "");
+    await expect(right.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+});
+
+/** 内容文件夹一层的清单条目名（`level` 为空是根这一层）。 */
+async function placeOrder(level: ReadonlyArray<string> = []): Promise<string[]> {
+    const text = await readFile(join(projectDir, "r4", "place.content", "content.xml"), "utf8");
+    let scope = text;
+    for (const name of level) {
+        const opening = `<item name="${name}">`;
+        const start = scope.indexOf(opening);
+        if (start < 0) return [];
+        scope = scope.slice(start + opening.length, scope.indexOf("</item>", start));
+    }
+    // 只取这一层：去掉更深的嵌套。
+    const flat = scope.replace(/<item name="[^"]+">[\s\S]*?<\/item>/gu, (match) => match.slice(0, match.indexOf(">") + 1));
+    return [...flat.matchAll(/<item name="([^"]+)"/gu)].map((match) => match[1] as string);
+}
+
+test("拖动（验收 27）：内容文件夹里跨层放到两行之间、子树末尾按横向位置选层、从普通文件夹拖进来放到指定位置", async ({page}) => {
+    await open(page);
+    await item(page, "project://r4").click();
+    await item(page, "project://r4/place.content").click();
+    await item(page, "project://r4/place.content/p1").locator("[data-explorer-twisty]").click();
+    await expect(item(page, "project://r4/place.content/p1/k2.md")).toBeVisible();
+
+    // 节点 p1 里的 k1.md 拖到 p2.md 与 p3.md 之间：插入线缩进到那一层，place 整段铺底。
+    await dragOver(page, "project://r4/place.content/p1/k1.md", "project://r4/place.content/p3.md", 0.1);
+    await expect(page.locator("[data-explorer-drop=\"place\"] [data-explorer-drop-line]")).toBeVisible();
+    await expect(page.locator("[data-explorer-drop=\"place\"] [data-explorer-drop-band]")).toBeVisible();
+    await expect(page.locator("[data-explorer-drop-live]")).toHaveText("放到 p2.md 之后（移入 place）");
+    await page.mouse.up();
+    await expect.poll(() => exists(join(projectDir, "r4", "place.content", "k1.md"))).toBe(true);
+    await expect.poll(() => placeOrder()).toEqual(["p1", "p2.md", "k1.md", "p3.md"]);
+    await barrier(page, "r4/place.content");
+
+    // 子树末尾（k2.md 的下沿）指针在名字上：放进 p1、排在最后。
+    await dragOver(page, "project://r4/place.content/p3.md", "project://r4/place.content/p1/k2.md", 0.9);
+    await expect(page.locator("[data-explorer-drop-live]")).toHaveText("放到 k2.md 之后（移入 p1）");
+    await page.mouse.up();
+    await expect.poll(() => exists(join(projectDir, "r4", "place.content", "p1", "p3.md"))).toBe(true);
+    await expect.poll(() => placeOrder(["p1"])).toEqual(["k2.md", "p3.md"]);
+    await barrier(page, "r4/place.content");
+
+    // 同一条缝（p3.md 的下沿）指针移到 p1 的箭头左边：放到 p1 之后，和 p1 同层；源来自普通文件夹。
+    await item(page, "project://r4/loose").click();
+    await expect(item(page, "project://r4/loose/w.md")).toBeVisible();
+    await dragOver(page, "project://r4/loose/w.md", "project://r4/place.content/p1/p3.md", 0.9);
+    const p1 = await item(page, "project://r4/place.content/p1").boundingBox();
+    const last = await item(page, "project://r4/place.content/p1/p3.md").boundingBox();
+    if (p1 === null || last === null) throw new Error("行不在页面上");
+    await page.mouse.move(p1.x + 12, last.y + last.height * 0.9, {steps: 4});
+    await expect(page.locator("[data-explorer-drop-live]")).toHaveText("放到 p1 之后（移入 place）");
+    await page.mouse.up();
+    await expect.poll(() => exists(join(projectDir, "r4", "place.content", "w.md"))).toBe(true);
+    await expect.poll(() => placeOrder()).toEqual(["p1", "w.md", "p2.md", "k1.md"]);
+    await item(page, "project://r4").click();
+});
+
+test("拖动（验收 28）：放下后滑到新位置、落进收起的目录时目录行亮一下、取消时拖影飞回；减少动态效果时没有这些标记", async ({page}) => {
+    await open(page);
+    await item(page, "project://r4").click();
+    await item(page, "project://r4/anim").click();
+    await item(page, "project://r4/anim/open").click();
+    await expect(item(page, "project://r4/anim/open/o.md")).toBeVisible();
+    // 记下出现过的动画标记：标记只留几百毫秒，轮询可能错过。
+    await page.evaluate(() => {
+        const seen = new Set<string>();
+        (window as unknown as {__motion: Set<string>}).__motion = seen;
+        const names = ["data-motion-moved", "data-motion-glow", "data-explorer-drag-return"];
+        const note = (element: Element): void => {
+            for (const name of names) if (element.hasAttribute(name)) seen.add(`${name}:${element.getAttribute("data-explorer-row") ?? ""}`);
+        };
+        new MutationObserver((records) => {
+            for (const record of records) {
+                if (record.type === "attributes") note(record.target as Element);
+                for (const added of record.addedNodes) if (added instanceof Element) [added, ...added.querySelectorAll("*")].forEach(note);
+            }
+        }).observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: names});
+    });
+    const seen = () => page.evaluate(() => [...(window as unknown as {__motion: Set<string>}).__motion]);
+    const forget = () => page.evaluate(() => (window as unknown as {__motion: Set<string>}).__motion.clear());
+
+    await barrier(page, "r4/anim");
+    await dragOver(page, "project://r4/anim/a1.md", "project://r4/anim/open", 0.5);
+    await page.mouse.up();
+    await expect(item(page, "project://r4/anim/open/a1.md")).toBeVisible();
+    await expect.poll(seen).toEqual(expect.arrayContaining(["data-motion-moved:project://r4/anim/open/a1.md", "data-motion-glow:project://r4/anim/open/a1.md"]));
+
+    await barrier(page, "r4/anim");
+    await dragOver(page, "project://r4/anim/a2.md", "project://r4/anim/box", 0.5);
+    await page.mouse.up();
+    await expect.poll(() => exists(join(projectDir, "r4", "anim", "box", "a2.md"))).toBe(true);
+    await expect.poll(seen).toContain("data-motion-glow:project://r4/anim/box");
+
+    await barrier(page, "r4/anim");
+    await dragOver(page, "project://r4/anim/a3.md", "project://r4/anim/open", 0.5);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await expect.poll(seen).toContain("data-explorer-drag-return:");
+    await expect(page.locator("[data-explorer-drag-return]")).toHaveCount(0);
+    expect(await exists(join(projectDir, "r4", "anim", "a3.md"))).toBe(true);
+
+    await page.emulateMedia({reducedMotion: "reduce"});
+    await forget();
+    await barrier(page, "r4/anim");
+    await dragOver(page, "project://r4/anim/a4.md", "project://r4/anim/open", 0.5);
+    await page.mouse.up();
+    await expect(item(page, "project://r4/anim/open/a4.md")).toBeVisible();
+    await dragOver(page, "project://r4/anim/a3.md", "project://r4/anim/open", 0.5);
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await barrier(page, "r4/anim");
+    expect(await seen()).toEqual([]);
+    await page.emulateMedia({reducedMotion: "no-preference"});
+    await item(page, "project://r4").click();
 });
 
 test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：都不写", async ({page}) => {
@@ -459,13 +749,13 @@ test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：�
     await expect(item(page, "project://moves/m2.md")).toBeVisible();
 
     await dragOver(page, "project://moves/m2.md", "project://moves/keep");
-    await expect(page.locator("[data-explorer-drop=\"move\"]")).toBeVisible();
+    await expect(page.locator("[data-explorer-drop=\"move\"] [data-explorer-drop-band]")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.locator("[data-explorer-drop]")).toHaveCount(0);
     await page.mouse.up();
 
     await dragOver(page, "project://moves/m2.md", "project://moves/keep");
-    await expect(page.locator("[data-explorer-drop=\"move\"]")).toBeVisible();
+    await expect(page.locator("[data-explorer-drop=\"move\"] [data-explorer-drop-band]")).toBeVisible();
     // 指针还按着：用 DOM 事件按下工具栏的切换按钮，不动指针。
     await page.locator("[data-title-action=\"nbook.files.toggle-manifests\"]").dispatchEvent("click");
     await expect(page.locator("[data-title-action=\"nbook.files.toggle-manifests\"]")).toHaveAttribute("aria-pressed", "true");
@@ -481,7 +771,7 @@ test("拖动中按 Escape、切换显示清单文件、滚动后原地放下：�
     });
     await expect(item(page, "project://moves/keep")).toBeInViewport();
     await dragOver(page, "project://moves/m2.md", "project://moves/keep");
-    await expect(page.locator("[data-explorer-drop=\"move\"]")).toBeVisible();
+    await expect(page.locator("[data-explorer-drop=\"move\"] [data-explorer-drop-band]")).toBeVisible();
     await page.mouse.wheel(0, -120);
     await expect(page.locator("[data-explorer-drop]")).toHaveCount(0);
     await page.mouse.up();

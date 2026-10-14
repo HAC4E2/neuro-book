@@ -36,14 +36,20 @@ const memory = createMemoryFiles({
         ["lore.content/alice/notes.md", "A"],
         ["lore.content/bob/index.md", "BOB"],
         ["lore.content/stray.md", "S"],
+        // 只有正文的节点：叶子，没有展开控件。
+        ["lore.content/carol/index.md", "CAROL"],
         ["plain/a.md", "PA"],
         ["plain/b.md", "PB"],
         ["plain/sub/x.md", "X"],
         "plain/empty/",
         ["drafts/a.md", "OLD"],
+        // 几种文件类型：看图标。
+        ["assets/cover.png", "PNG"],
+        ["assets/index.json", "{}"],
+        ["assets/notes.txt", "T"],
     ],
     user: [["notes.md", "U"]],
-    manifests: {"project://lore.content": [{name: "alice", title: "爱丽丝"}, {name: "bob", title: "鲍勃"}, {name: "gone", title: "已删除的条目"}]},
+    manifests: {"project://lore.content": [{name: "alice", title: "爱丽丝"}, {name: "bob", title: "鲍勃"}, {name: "gone", title: "已删除的条目"}, {name: "carol", title: "卡萝"}]},
 });
 
 const controller = shallowRef<ExplorerController | null>(null);
@@ -108,6 +114,8 @@ const Host = createExplorerViewHost(FilesExplorerView, {
     locale: computed(() => LAB_LOCALE),
     // 产品里是窗口绑定的作品的书名。
     projectTitle: "雾港",
+    // 产品里来自设置；场景取缺省值。
+    display: computed(() => ({indentGuides: "hover" as const, hideMarkdownExtension: false})),
     report: (id, reason) => record("command-failed", `${id}：${reason}`),
 });
 const context: ViewContext = {id: "nbook.explorer", generation: 1, visible: ref(true), location: ref("sidebar")};

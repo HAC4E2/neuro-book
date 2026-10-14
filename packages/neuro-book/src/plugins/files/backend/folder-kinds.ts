@@ -16,18 +16,7 @@ export function folderKindOf(name: string): FolderKind {
     return "plain";
 }
 
-const collator = new Intl.Collator("zh-CN", {numeric: true, sensitivity: "base"});
-
-/** 名字排序：中文自然排序，比较相等时按 UTF-16 码元次序，结果是全序。 */
-export function compareNames(left: string, right: string): number {
-    return collator.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0);
-}
-
-/** 目录在前，再按名字排序（普通文件夹与内容文件夹的未列入项）。 */
-export function compareEntries(left: {readonly name: string; readonly kind: string}, right: {readonly name: string; readonly kind: string}): number {
-    const directory = Number(right.kind === "directory") - Number(left.kind === "directory");
-    return directory || compareNames(left.name, right.name);
-}
+export {compareEntries, compareNames} from "../shared/names";
 
 export interface ManifestItem {
     readonly name: string;

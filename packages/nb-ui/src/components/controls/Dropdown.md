@@ -90,7 +90,7 @@ interface DropdownItem {
     iconClass?: string;
     /** 右侧图标 class；默认 undefined；当前未渲染，见「已知偏差」 */
     rightIconClass?: string;
-    /** 右侧快捷键提示文字；默认不显示 */
+    /** 快捷键提示文字：靠右对齐、正文字体的小一号弱化色；默认不显示 */
     shortcut?: string;
     /** 原生提示与读屏描述（`aria-description`），例如禁用原因；禁用项同样带上；默认 undefined */
     title?: string;

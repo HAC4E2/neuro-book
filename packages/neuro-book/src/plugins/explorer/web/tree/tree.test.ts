@@ -11,7 +11,7 @@ import {invalidation} from "./invalidate";
 import {treeKey} from "./keys";
 import type {TreeKey} from "./keys";
 import type {DirectorySlot, RootState} from "./model";
-import {projectRows} from "./rows";
+import {displayLabel, projectRows} from "./rows";
 import type {EntryRow, Row} from "./rows";
 import {click, contextSelect, EMPTY_SELECTION, followPaths, prune, selectAll} from "./selection";
 import type {Selection} from "./selection";
@@ -33,6 +33,7 @@ const SLOTS = new Map<string, DirectorySlot>([
     ["project://lore.content", loaded({folder: "content", contentRoot: "lore.content", manifest: {status: "ok"}, entries: [
         dir("alice", {title: "爱丽丝", icon: "person", listed: true, body: false}),
         dir("bob", {title: "鲍勃", listed: true, body: true}),
+        dir("carol", {listed: true, body: true, leaf: true}),
         {name: "gone", kind: "missing", title: "已删除", listed: true},
         file("stray.md", {listed: false}),
         file("content.xml", {role: "manifest"}),
@@ -93,10 +94,29 @@ describe("Spec workbench.files-explorer 文件夹类型呈现：投影", () => {
         expect(entry(rows(), "project://story.binder")).toMatchObject({binder: true, node: false});
     });
 
-    it("清单不合法：退回普通目录呈现，内容根那一层提示一次错误，index.md 成行", () => {
+    it("内容文件夹与活页夹自己的行去掉类型后缀、后缀作副标题；只有正文的节点（叶子）不可展开", () => {
         const all = rows();
-        expect(all.filter((row) => row.kind === "status" && row.status === "manifest")).toEqual([
-            {kind: "status", id: "project://broken.content#manifest", depth: 2, parent: "project://broken.content", status: "manifest", code: "invalid", detail: "第 1 行不是 XML"},
+        expect(entry(all, "project://lore.content")).toMatchObject({label: "lore", subtitle: ".content"});
+        expect(entry(all, "project://story.binder")).toMatchObject({label: "story", subtitle: ".binder"});
+        expect(entry(all, "project://lore.content/carol")).toMatchObject({node: true, body: true, expandable: false, expanded: false, opens: "project://lore.content/carol/index.md"});
+        expect(entry(all, "project://lore.content/bob")).toMatchObject({expandable: true});
+        // 叶子不可展开：展开记录里有它也不展开、不列出。
+        expect(entry(rows({expanded: new Set([...EXPANDED, "project://lore.content/carol"])}), "project://lore.content/carol")).toMatchObject({expanded: false});
+    });
+
+    it("隐藏 Markdown 扩展名只改显示的名字：没有展示名的 .md 文件去掉 .md，目录、展示名与只有扩展名的名字不变", () => {
+        const slots = new Map([["project://", loaded(plain([dir("notes.md"), file("第三章.md"), file(".md"), file("data.json")]))]]);
+        const all = rows({slots, expanded: new Set(["project://"])});
+        const shown = (id: string, hide: boolean): string => displayLabel(entry(all, id), hide);
+        expect(["project://notes.md", "project://第三章.md", "project://.md", "project://data.json"].map((id) => shown(id, true))).toEqual(["notes.md", "第三章", ".md", "data.json"]);
+        expect(shown("project://第三章.md", false)).toBe("第三章.md");
+        expect(displayLabel(entry(rows(), "project://lore.content/alice"), true)).toBe("爱丽丝");
+    });
+
+    it("清单不合法：退回普通目录呈现，问题挂在内容根自己的行上（只这一行），index.md 成行", () => {
+        const all = rows();
+        expect(all.filter((row) => row.kind !== "edit" && row.problem !== null).map((row) => [row.id, row.kind !== "edit" && row.problem])).toEqual([
+            ["project://broken.content", {kind: "manifest", code: "invalid", detail: "第 1 行不是 XML"}],
         ]);
         expect(entry(all, "project://broken.content/child")).toMatchObject({node: false, label: "child"});
         expect(entry(all, "project://broken.content/child/index.md")).toMatchObject({opens: "project://broken.content/child/index.md"});
@@ -104,19 +124,26 @@ describe("Spec workbench.files-explorer 文件夹类型呈现：投影", () => {
         expect(ids(all)).not.toContain("project://broken.content/content.xml");
     });
 
-    it("状态行：加载中、读取失败、空目录各自成行；同层位置按完整的同层集合计", () => {
+    it("目录的状态挂在自己的行上：列出中、读取失败（刷新失败时子项照留）；空目录与收起的目录没有状态，也没有多出的行", () => {
         const slots = new Map(SLOTS);
         slots.set("project://plain/sub", {listing: null, error: null, loading: true, stale: false});
         slots.set("project://story.binder", {listing: null, error: {code: "permission-denied", detail: "没有权限"}, loading: false, stale: false});
-        const all = rows({slots, expanded: new Set([...EXPANDED, "project://plain/sub", "project://empty"])});
-        expect(all.filter((row) => row.kind === "status").map((row) => row.kind === "status" && [row.parent, row.status, row.code])).toEqual([
-            ["project://broken.content", "manifest", "invalid"],
-            ["project://plain/sub", "loading", null],
-            ["project://story.binder", "error", "permission-denied"],
-        ]);
+        slots.set("project://lore.content", {...(SLOTS.get("project://lore.content") as DirectorySlot), error: {code: "unknown-outcome", detail: "断线"}});
+        const all = rows({slots, expanded: new Set([...EXPANDED, "project://plain/sub"])});
+        expect(entry(all, "project://plain/sub").problem).toEqual({kind: "loading"});
+        expect(entry(all, "project://story.binder").problem).toEqual({kind: "error", code: "permission-denied", detail: "没有权限"});
+        expect(entry(all, "project://lore.content").problem).toEqual({kind: "error", code: "unknown-outcome", detail: "断线"});
+        // 失败后重新列出：列出期间是转圈。
+        slots.set("project://story.binder", {listing: null, error: {code: "permission-denied", detail: "没有权限"}, loading: true, stale: false});
+        expect(entry(rows({slots, expanded: new Set([...EXPANDED, "project://plain/sub"])}), "project://story.binder").problem).toEqual({kind: "loading"});
+        expect(ids(all)).toContain("project://lore.content/alice");
+        expect(ids(all).filter((id) => id.startsWith("project://plain/sub/") || id.startsWith("project://story.binder/"))).toEqual([]);
+        expect(entry(rows({slots}), "project://plain/sub").problem).toBeNull();
+        expect(all.every((row) => row.kind === "root" || row.kind === "entry")).toBe(true);
         expect(entry(all, "project://plain/a.md")).toMatchObject({position: 2, siblings: 3});
         const empty = rows({slots: new Map([["project://", loaded(plain([dir("empty")]))], ["project://empty", loaded(plain([]))]]), expanded: new Set(["project://", "project://empty"])});
-        expect(empty.at(-2)).toMatchObject({kind: "status", status: "empty", parent: "project://empty"});
+        expect(ids(empty)).toEqual(["project://", "project://empty", "user://"]);
+        expect(entry(empty, "project://empty")).toMatchObject({expanded: true, problem: null});
     });
 
     it("没有绑定项目：项目根不展开，没有子行", () => {

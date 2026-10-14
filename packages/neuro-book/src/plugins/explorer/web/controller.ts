@@ -14,8 +14,8 @@ import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DocumentCoordinator, DocumentLease} from "nbook/plugins/editor/shared/contracts";
 import type {BatchHandle, BatchResult, FilesResult, FilesService, ItemResult, ManifestIssue, OperationDone, Scheme} from "nbook/plugins/files/shared/contracts";
 
-import {resolveDrop} from "./actions/drop";
-import type {DropAction, DropZone} from "./actions/drop";
+import {resolveBlankDrop, resolveDrop, resolveEditorDrop} from "./actions/drop";
+import type {DropAction, DropOver} from "./actions/drop";
 import {candidateName, planNames} from "./actions/paste-plan";
 import type {CollisionChoice, PlanSource} from "./actions/paste-plan";
 import {shiftNames} from "./actions/reorder-plan";
@@ -26,6 +26,7 @@ import {createTreeModel} from "./tree/model";
 import type {RootState, TreeModel} from "./tree/model";
 import {creatingId, projectRows} from "./tree/rows";
 import type {Creating, EntryRow, Row} from "./tree/rows";
+import type {MotionNote} from "./tree/motion";
 import {click, contextSelect, EMPTY_SELECTION, followPaths, prune} from "./tree/selection";
 import type {Modifiers, Selection} from "./tree/selection";
 
@@ -116,7 +117,7 @@ export interface Unknown {
 /** 拖动中：冻结的源与最后显示过的落点动作。放下时只提交与它相同的动作。 */
 export interface DragState {
     readonly sources: ReadonlyArray<string>;
-    readonly over: {readonly id: string; readonly zone: DropZone} | null;
+    readonly over: DropOver | null;
     readonly action: DropAction;
 }
 
@@ -140,7 +141,7 @@ export interface Availability {
 /** 动作的结果：做不了时给出原因的键（见 `messages.ts`），由命令转成 `unavailable`。 */
 export type ActionResult = {readonly ok: true} | {readonly ok: false; readonly reason: UnavailableReason};
 
-export type UnavailableReason = "no-target" | "no-selection" | "not-applicable" | "busy" | "stopped" | "unknown-outcome" | "empty-clipboard" | "cross-root";
+export type UnavailableReason = "no-target" | "no-selection" | "not-applicable" | "busy" | "stopped" | "unknown-outcome" | "empty-clipboard" | "cross-root" | "copy-failed";
 
 /** 树内按键的结果：没处理、处理了，或要在某一行打开右键菜单。 */
 export type KeyOutcome = "none" | "handled" | {readonly menu: string};
@@ -155,6 +156,8 @@ export interface ExplorerControllerOptions {
     readonly showManifests?: boolean;
     /** 编辑器的文档协调：复制、移动、改名与删除前结算未保存的修改；编辑器没有加载时为空，直接放行。 */
     readonly documents?: DocumentCoordinator;
+    /** 系统剪贴板（“复制路径”）；浏览器里是 `navigator.clipboard`，没有时复制路径不可用。 */
+    readonly clipboard?: {writeText(text: string): Promise<void>};
     readonly report: (error: unknown) => void;
 }
 
@@ -174,6 +177,8 @@ export interface ExplorerController {
     readonly clipboard: Readonly<ShallowRef<Clipboard | null>>;
     readonly unknown: Readonly<ShallowRef<Unknown | null>>;
     readonly drag: Readonly<ShallowRef<DragState | null>>;
+    /** 最近一次提交的结构变化预告（树据此放动画）；没有过为 null。 */
+    readonly motion: Readonly<ShallowRef<MotionNote | null>>;
     readonly available: ComputedRef<Availability>;
     /** 树要重新拿到焦点（编辑或确认结束）：视图看到它变化就把焦点放回树上。 */
     readonly focusRequest: Readonly<ShallowRef<number>>;
@@ -185,6 +190,13 @@ export interface ExplorerController {
     reveal(address: string): void;
     /** 双击：以常驻方式打开。 */
     activate(id: string): void;
+    /**
+     * 以常驻方式打开选中项里能打开的（文件与有正文的节点），按树里的顺序；`side` 时第一项打开到活动组右侧的组，其余跟着
+     * 打开在那一组（docs/specs/workbench/files-explorer.md 的 `open`、`open-to-side`）。
+     */
+    openSelection(side: boolean): ActionResult;
+    /** 把选中资源的路径按树里的顺序每行一个写进系统剪贴板：服务端机器上的绝对路径，或相对所在根的路径；根行不算。 */
+    copyPaths(relative: boolean): Promise<ActionResult>;
     contextSelect(id: string): void;
     key(key: TreeKey, page: number): KeyOutcome;
     setShowManifests(show: boolean): void;
@@ -209,8 +221,8 @@ export interface ExplorerController {
     abandon(): void;
     // 拖动：手势归视图，判定与提交归控制器。
     startDrag(id: string): boolean;
-    hoverDrag(over: {readonly id: string; readonly zone: DropZone} | null): void;
-    dropDrag(over: {readonly id: string; readonly zone: DropZone} | null): Promise<void>;
+    hoverDrag(over: DropOver | null): void;
+    dropDrag(over: DropOver | null): Promise<void>;
     cancelDrag(): void;
     // 内联输入与确认框。
     editName(name: string): void;
@@ -236,7 +248,11 @@ function sameDrop(a: DropAction, b: DropAction): boolean {
         case "move":
             return b.kind === "move" && a.target === b.target;
         case "reorder":
-            return b.kind === "reorder" && a.parent === b.parent && a.anchor === b.anchor && a.zone === b.zone && a.names.length === b.names.length && a.names.every((name, index) => name === b.names[index]);
+            return b.kind === "reorder" && a.parent === b.parent && a.before === b.before && a.names.length === b.names.length && a.names.every((name, index) => name === b.names[index]);
+        case "place":
+            return b.kind === "place" && a.target === b.target && a.before === b.before;
+        case "open":
+            return b.kind === "open" && a.group === b.group && a.addresses.length === b.addresses.length && a.addresses.every((address, index) => address === b.addresses[index]);
     }
 }
 
@@ -258,6 +274,12 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
     const clipboard = shallowRef<Clipboard | null>(null);
     const unknown = shallowRef<Unknown | null>(null);
     const drag = shallowRef<DragState | null>(null);
+    const motion = shallowRef<MotionNote | null>(null);
+    let motionSeq = 0;
+    /** 提交之前发出预告：结果到达后的刷新才认得出来。 */
+    const noteMotion = (part: Partial<Omit<MotionNote, "id">>): void => {
+        motion.value = {id: ++motionSeq, moves: [], arrivals: [], departures: [], ...part};
+    };
     /** 粘贴或拖动移入在预判同名（列出目标、问用户）：这期间不能再起一个批量。 */
     const preparing = shallowRef(false);
     let clipSeq = 0;
@@ -314,21 +336,25 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             pruned = next;
             // 拖动的源或落点行不在了：取消，不写。
             const current = drag.value;
-            if (current !== null && !current.sources.concat(current.over === null ? [] : [current.over.id]).every((id) => next.some((row) => row.id === id))) drag.value = null;
+            if (current !== null && !current.sources.concat(current.over?.kind === "row" ? [current.over.id] : []).every((id) => next.some((row) => row.id === id))) drag.value = null;
         });
     });
 
     let openSeq = 0;
-    const open = async (address: string, mode: OpenMode): Promise<void> => {
+    const open = async (address: string, mode: OpenMode, group?: string): Promise<void> => {
         const seq = ++openSeq;
-        const result = await options.commands.execute(OPEN_COMMAND, {address, mode});
+        const result = await options.commands.execute(OPEN_COMMAND, {address, mode, ...(group === undefined ? {} : {group})});
         // 迟到的结果不覆盖之后的打开意图。
         if (seq !== openSeq || result.ok) return;
         notice.value = result.code === "unknown-command" ? {kind: "editor-missing", address} : {kind: "open-failed", address, reason: result.reason};
     };
+    /** 拖到编辑组：依次以常驻方式在那一组打开（第一项让它成为活动组，其余落在同一组）。 */
+    const openDropped = (group: string, addresses: ReadonlyArray<string>): void => {
+        for (const address of addresses) void open(address, "permanent", group);
+    };
     const find = (id: string): Row | undefined => rows.value.find((row) => row.id === id);
     const toggle = (row: Row): void => {
-        if (row.kind === "status" || row.kind === "edit" || (row.kind === "root" && row.status.kind === "unbound") || (row.kind === "entry" && !row.expandable)) return;
+        if (row.kind === "edit" || (row.kind === "root" && row.status.kind === "unbound") || (row.kind === "entry" && !row.expandable)) return;
         if (row.expanded) model.collapse(row.id);
         else model.expand(row.id);
     };
@@ -549,10 +575,15 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
     /**
      * 把冻结的源复制或移动到目标目录（粘贴与拖动移入同一流程）：同目标的移动无操作；用目标此刻的列出结果预判同名，逐个
      * 问改名、跳过或取消剩余；提交仍由服务端排他重验。剪切粘贴按项从剪贴板移除成功的源，剪贴板在此期间换了时不动新的。
+     *
+     * `before`（只给移动）：放到内容树里这一层的指定位置（`null` 为末尾）。这时已在目标里的源也进这一批（目标是它自己，
+     * 服务端只挪清单），整批按源的先后插到同一个位置，连成一串（docs/specs/workspace/files.md 的“移动到指定位置”）。
      */
-    const transfer = async (action: "copy" | "move", sources: ReadonlyArray<ClipItem>, target: string, clip: Clipboard | null): Promise<void> => {
+    const transfer = async (action: "copy" | "move", sources: ReadonlyArray<ClipItem>, target: string, clip: Clipboard | null, before?: string | null): Promise<void> => {
+        const placing = action === "move" && before !== undefined;
         const moving = action === "move" ? sources.filter((item) => parentAddress(item.address) !== target) : sources;
-        if (moving.length === 0) return;
+        const staying = placing ? sources.filter((item) => parentAddress(item.address) === target) : [];
+        if (moving.length === 0 && staying.length === 0) return;
         preparing.value = true;
         let asked = false;
         let lease: DocumentLease | null = null;
@@ -590,11 +621,18 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 ...plan.skipped.map((source) => ({address: source.address, target: childAddress(target, source.name), result: {status: "declined", reason: "skip"} as const})),
                 ...plan.cancelled.map((source) => ({address: source.address, target: childAddress(target, source.name), result: {status: "declined", reason: "cancel"} as const})),
             ];
-            if (plan.items.length === 0) {
+            if (plan.items.length === 0 && staying.length === 0) {
                 report.value = declined.length === 0 ? null : {action, items: declined, manifests: [], truncated: false};
                 return;
             }
-            const items = plan.items.map((item) => ({address: item.source.address, target: childAddress(target, item.name)}));
+            // 按源的先后排：放到指定位置时，这一串在目标里的顺序就是这个顺序。
+            const named = new Map(plan.items.map((item) => [item.source.address, item.name]));
+            const ordered = sources.flatMap((source) => {
+                if (staying.includes(source)) return [{source, name: nameOf(source.address)}];
+                const name = named.get(source.address);
+                return name === undefined ? [] : [{source, name}];
+            });
+            const items = ordered.map((item) => ({address: item.source.address, target: childAddress(target, item.name)}));
             // 移动之前取租约：编辑器结算视图输入、等在途保存，再挡住这些文档的新保存，直到移动有结果（输出 24）。
             if (action === "move" && options.documents !== undefined) {
                 const begun = await options.documents.begin(items.map((item) => item.address));
@@ -605,7 +643,8 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 lease = begun.lease;
                 if (disposed || !live(target)) return;
             }
-            const batch = plan.items.map((item) => ({source: item.source.address, target: childAddress(target, item.name), expected: translated(item.source.address, item.source.token)}));
+            const batch = ordered.map((item) => ({source: item.source.address, target: childAddress(target, item.name), expected: translated(item.source.address, item.source.token), ...(placing ? {before: before ?? null} : {})}));
+            noteMotion(action === "move" ? {moves: items.map((item) => ({from: item.address, to: item.target}))} : {arrivals: items.map((item) => item.target)});
             const value = await runBatch(action, items, action === "copy" ? files.copy(batch) : files.move(batch), declined, clip?.id ?? null);
             if (lease !== null) {
                 if (value === null && unknown.value !== null) {
@@ -618,7 +657,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 lease = null;
             }
             if (value === null || clip?.mode !== "cut") return;
-            const moved = new Set(plan.items.filter((_, index) => value.items[index]?.status === "done").map((item) => item.source));
+            const moved = new Set(ordered.filter((_, index) => value.items[index]?.status === "done").map((item) => item.source));
             const now = clipboard.value;
             if (now?.id !== clip.id) return;
             const rest = now.items.filter((item) => !moved.has(item));
@@ -658,7 +697,12 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         dropping = null;
     };
     const NO_DROP: DropAction = {kind: "none"};
-    const dropAction = (sources: ReadonlyArray<string>, over: {readonly id: string; readonly zone: DropZone} | null): DropAction => (over === null ? NO_DROP : resolveDrop(sources, find(over.id), over.zone, manifestOrder));
+    const dropAction = (sources: ReadonlyArray<string>, over: DropOver | null): DropAction => {
+        if (over === null) return NO_DROP;
+        if (over.kind === "blank") return resolveBlankDrop(sources, find);
+        if (over.kind === "editor") return resolveEditorDrop(sources, over.group, find);
+        return resolveDrop(sources, rows.value, over, manifestOrder);
+    };
 
     /**
      * 根结束（项目代次结束、订阅终止）：属于它的未提交意图全部作废——剪贴板、内联输入、确认框与碰撞对话框、拖动与
@@ -696,6 +740,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         clipboard,
         unknown,
         drag,
+        motion,
         available,
         focusRequest,
         reveal: (address) => {
@@ -710,7 +755,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         },
         click: (id, modifiers, part) => {
             const row = find(id);
-            if (row === undefined || row.kind === "status" || row.kind === "edit") return;
+            if (row === undefined || row.kind === "edit") return;
             if (part === "twisty") {
                 toggle(row);
                 return;
@@ -727,6 +772,43 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         activate: (id) => {
             const row = find(id);
             if (row?.kind === "entry" && row.opens !== null) void open(row.opens, "permanent");
+        },
+        openSelection: (side) => {
+            const chosen = new Set(selection.value.selected);
+            const targets = rows.value.flatMap((row) => (row.kind === "entry" && chosen.has(row.id) && row.opens !== null ? [row.opens] : []));
+            if (targets.length === 0) return {ok: false, reason: chosen.size === 0 ? "no-selection" : "not-applicable"};
+            // 依次发出：编辑器按命令到达的顺序处理，第一项建出侧边的组并成为活动组，后面的不带 group 就落在它里面。
+            targets.forEach((address, index) => {
+                void open(address, "permanent", side && index === 0 ? "side" : undefined);
+            });
+            return {ok: true};
+        },
+        copyPaths: async (relative) => {
+            const chosen = new Set(selection.value.selected);
+            // 缺失条目（清单里有、磁盘上没有）没有路径，跳过。
+            const addresses = rows.value.flatMap((row) => (row.kind === "entry" && chosen.has(row.id) && row.type !== "missing" ? [row.address] : []));
+            if (addresses.length === 0) return {ok: false, reason: chosen.size === 0 ? "no-selection" : "not-applicable"};
+            if (options.clipboard === undefined) return {ok: false, reason: "copy-failed"};
+            const lines: string[] = [];
+            for (const address of addresses) {
+                if (relative) {
+                    lines.push(resourceOf(address).path);
+                    continue;
+                }
+                const real = await options.files.realPath(address);
+                if (!real.ok) {
+                    options.report(new Error(`复制路径：${address} 取不到绝对路径（${real.code}：${real.detail}）`));
+                    return {ok: false, reason: "copy-failed"};
+                }
+                lines.push(real.value);
+            }
+            try {
+                await options.clipboard.writeText(lines.join("\n"));
+            } catch (error) {
+                options.report(error);
+                return {ok: false, reason: "copy-failed"};
+            }
+            return {ok: true};
         },
         contextSelect: (id) => {
             pendingFocus = null;
@@ -835,6 +917,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         move: async (direction) => {
             const plan = available.value[direction === "up" ? "moveUp" : "moveDown"] ? reorderOf(direction) : null;
             if (plan === null) return unavailable("not-applicable");
+            noteMotion({moves: selectedEntries.value.map((row) => ({from: row.address, to: row.address}))});
             settle("reorder", plan.parent, await files.reorder(plan.parent, plan.names));
             return OK;
         },
@@ -900,6 +983,11 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             if (current === null || items === null) return;
             const action = dropAction(current.sources, over);
             if (action.kind === "none" || !sameDrop(action, current.action)) return;
+            // 在编辑组打开不是文件操作：不等拿起时冻结的令牌（docs/specs/workbench/files-explorer.md 的“拖动”）。
+            if (action.kind === "open") {
+                openDropped(action.group, action.addresses);
+                return;
+            }
             const token = {sources: current.sources};
             dropping = token;
             const frozen = await items;
@@ -907,7 +995,11 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             if (dropping !== token || frozen === null || disposed || !idle.value || !sameDrop(dropAction(current.sources, over), action)) return;
             dropping = null;
             if (action.kind === "move") await transfer("move", frozen, action.target, null);
-            else settle("reorder", action.parent, await files.reorder(action.parent, action.names));
+            else if (action.kind === "place") await transfer("move", frozen, action.target, null, action.before);
+            else if (action.kind === "reorder") {
+                noteMotion({moves: current.sources.map((source) => ({from: source, to: source}))});
+                settle("reorder", action.parent, await files.reorder(action.parent, action.names));
+            }
         },
         cancelDrag,
 
@@ -952,6 +1044,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
                 }
             }
             const renamedTo = current.mode === "rename" ? childAddress(parentAddress(current.address) as string, name) : null;
+            if (current.mode === "create") noteMotion({arrivals: [childAddress(current.creating.parent, name)]});
             let result: FilesResult<OperationDone>;
             try {
                 result = current.mode === "create"
@@ -991,6 +1084,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             dialog.value = null;
             refocus();
             if (focusAfter !== null) selection.value = {selected: [focusAfter], focus: focusAfter, anchor: focusAfter};
+            noteMotion({departures: current.items.map((item) => item.address)});
             const handle = files.delete(current.items.map((item) => ({address: item.address, expected: item.token})));
             const value = await runBatch("delete", current.items.map((item) => ({address: item.address, target: null})), handle, [], null);
             // 用户在确认框里看到了“未保存的修改会丢失”：删除成功的项连同打开的文档一起关闭（输出 25）。

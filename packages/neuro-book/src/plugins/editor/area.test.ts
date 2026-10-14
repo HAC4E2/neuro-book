@@ -171,6 +171,35 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
     });
 });
 
+describe("Spec workbench.editor 输出 35：打开到指定的组", () => {
+    it("只结算活动标签要换的那一组：活动组有未裁决输入时仍能打开到别的组；侧边的组有未裁决输入时“侧边”被拦；组已关闭为不可用", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        at.area.split("right");
+        await ready(at);
+        const leftGroup = at.area.groups.groups.value[0]?.id ?? "";
+        const rightGroup = groupId(at);
+        const right = at.area.binding(rightGroup);
+        const left = at.area.binding(leftGroup);
+        if (right === null || left === null) throw new Error("没有绑定");
+        const base = right.document.revision.value;
+        left.commit(base, "左");
+        expect(right.commit(base, "右")).toMatchObject({status: "conflict"});
+
+        // 活动的是右组（有未裁决输入）：打开到左组不碰右组，照样打开，左组成为活动组。
+        expect(at.area.open("project://b.md", {mode: "permanent", group: leftGroup})).toMatchObject({ok: true});
+        expect(at.area.groups.activeGroup.value).toBe(leftGroup);
+        // 从左组“侧边”打开：目标是有未裁决输入的右组，拦下，不新建组。
+        expect(at.area.open("project://c.md", {mode: "permanent", group: "side"})).toMatchObject({ok: false});
+        expect(at.area.groups.groups.value).toHaveLength(2);
+        at.area.resolve(rightGroup, "keep-view");
+        expect(at.area.open("project://c.md", {mode: "permanent", group: "side"})).toMatchObject({ok: true});
+        expect(at.area.groups.activeGroup.value).toBe(rightGroup);
+        expect(at.area.open("project://a.md", {mode: "permanent", group: "g-gone"})).toEqual({ok: false, reason: "编辑组已关闭"});
+    });
+});
+
 describe("Spec workbench.editor 输出 3–5：关闭、拆分与会话", () => {
     it("关闭 dirty 文档的最后一个标签先问：取消不关；保存后关闭并写盘；同一文档还在别的组时不问", async () => {
         const at = await world();

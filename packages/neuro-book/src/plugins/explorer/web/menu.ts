@@ -5,7 +5,7 @@
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import {CONVERT_COMMAND, COPY_COMMAND, CREATE_CONTENT_COMMAND, CUT_COMMAND, DELETE_COMMAND, DROP_ENTRY_COMMAND, INCLUDE_COMMAND, MOVE_DOWN_COMMAND, MOVE_UP_COMMAND, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, PASTE_COMMAND, RENAME_COMMAND, SET_DISPLAY_COMMAND} from "./commands";
+import {CONVERT_COMMAND, COPY_COMMAND, COPY_PATH_COMMAND, COPY_RELATIVE_PATH_COMMAND, CREATE_CONTENT_COMMAND, CUT_COMMAND, DELETE_COMMAND, DROP_ENTRY_COMMAND, INCLUDE_COMMAND, MOVE_DOWN_COMMAND, MOVE_UP_COMMAND, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, OPEN_SELECTION_COMMAND, OPEN_TO_SIDE_COMMAND, PASTE_COMMAND, RENAME_COMMAND, SET_DISPLAY_COMMAND} from "./commands";
 import type {Availability} from "./controller";
 import {explorerText} from "./messages";
 import type {ExplorerMessage} from "./messages";
@@ -26,6 +26,10 @@ export const MENU_COMMANDS = {
     cut: CUT_COMMAND,
     copy: COPY_COMMAND,
     paste: PASTE_COMMAND,
+    open: OPEN_SELECTION_COMMAND,
+    openToSide: OPEN_TO_SIDE_COMMAND,
+    copyPath: COPY_PATH_COMMAND,
+    copyRelativePath: COPY_RELATIVE_PATH_COMMAND,
 } as const;
 
 /**
@@ -42,13 +46,18 @@ export function menuEntries(row: Row, available: Availability, locale: DisplayLo
     const create = [item(MENU_COMMANDS.newFile, "newFile", available.create), item(MENU_COMMANDS.newFolder, "newFolder", available.create)];
     const paste = item(MENU_COMMANDS.paste, "paste", available.paste, {shortcut: "Ctrl+V"});
     if (row.kind !== "entry") return [...create, separator, paste];
+    // 能打开的行（文件与有正文的节点）才有“打开”“在侧边打开”；目录行没有。
+    const opening = row.opens === null ? [] : [item(MENU_COMMANDS.open, "open", true, {shortcut: "Enter"}), item(MENU_COMMANDS.openToSide, "openToSide", true, {shortcut: "Ctrl+Enter"}), separator];
     const entries: MenuEntry[] = [
+        ...opening,
         ...create,
         separator,
         item(MENU_COMMANDS.cut, "cut", available.cut, {shortcut: "Ctrl+X"}),
         item(MENU_COMMANDS.copy, "copy", available.copy, {shortcut: "Ctrl+C"}),
         paste,
         separator,
+        // 缺失条目在磁盘上没有，没有路径可复制。
+        ...(row.type === "missing" ? [] : [item(MENU_COMMANDS.copyPath, "copyPath", true), item(MENU_COMMANDS.copyRelativePath, "copyRelativePath", true), separator]),
         item(MENU_COMMANDS.rename, "rename", available.rename, {shortcut: "F2"}),
     ];
     if (row.node && !row.body) entries.push(item(MENU_COMMANDS.createContent, "createContent", available.createContent));

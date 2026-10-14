@@ -121,7 +121,8 @@ export interface EditorArea {
     /** 组顶部的一行提示（例如换文档前有未裁决输入）；没有为 null。 */
     readonly notice: Readonly<ShallowRef<string | null>>;
     /** `reveal: "end"`：文档就绪、控件交出句柄后把光标放到末尾（输出 29）；在此之前切走即取消。 */
-    open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor?: EditorKind; readonly reveal?: "end"}): OpenResult;
+    /** `group`：编辑组 id，或 `"side"`（活动组右侧的组，没有就向右新建一个）；缺省活动组（docs/specs/workbench/editor.md 输出 35）。 */
+    open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor?: EditorKind; readonly reveal?: "end"; readonly group?: string}): OpenResult;
     /** 打开一个页面（输出 33）：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签。 */
     openPage(id: string): OpenResult;
     activate(tabId: string): ActionResult;
@@ -532,11 +533,14 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         open: (address, open) => {
             if (disposed) return {ok: false, reason: "编辑器已关闭"};
             if (pageIdOf(address) !== null) return {ok: false, reason: "页面用 nbook.editor.open-page 打开"};
-            if (!leave(groups.activeGroup.value)) return {ok: false, reason: "当前视图有未裁决的输入"};
+            if (open.group !== undefined && open.group !== "side" && !groups.groups.value.some((candidate) => candidate.id === open.group)) return {ok: false, reason: "编辑组已关闭"};
+            // 只结算活动标签要换掉的那一组（同 `activate`）：目标组；侧边还没有组时要新建，没有要结算的。
+            const target = open.group === "side" ? groups.rightOf(groups.activeGroup.value) : (open.group ?? groups.activeGroup.value);
+            if (target !== null && !leave(target)) return {ok: false, reason: target === groups.activeGroup.value ? "当前视图有未裁决的输入" : "目标组有未裁决的输入"};
             const editor = open.editor ?? defaultEditor(address);
-            const group = groups.activeGroup.value;
+            const group = target ?? groups.sideGroup();
             // 文档在标签成为活动标签、第一次被读到时打开（`referenceOf`）：新开的标签就是活动标签。
-            const {tab, replaced} = groups.open(address, {mode: open.mode, editor});
+            const {tab, replaced} = groups.open(address, {mode: open.mode, editor, group});
             if (replaced !== null) releaseTab(replaced, group);
             pendingReveal.value = open.reveal === "end" ? {groupId: group, tabId: tab.id, address, reveal: "end"} : null;
             options.opened?.(address);

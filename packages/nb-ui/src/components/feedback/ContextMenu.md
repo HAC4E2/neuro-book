@@ -24,7 +24,7 @@ interface ContextMenuItem {
     label?: string;
     /** 图标 CSS class；可选 */
     iconClass?: string;
-    /** 快捷键展示文字；可选，仅显示 */
+    /** 快捷键展示文字：靠右对齐、正文字体的小一号弱化色；可选，仅显示 */
     shortcut?: string;
     /** 叶子项选择时执行；可选，有 children 的项目不会调用 */
     action?: () => void;

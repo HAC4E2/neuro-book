@@ -1,12 +1,15 @@
 <script setup lang="ts">
-/** 资源管理器的一行：根、资源或状态行（同名 .md）。 */
-import {FormInput} from "@notnotype/nb-ui/components";
+/** 资源管理器的一行：根或资源，以及新建与改名的内联输入（同名 .md）。 */
+import {FormInput, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
+import {fileIconOf} from "../icons/file-icons";
 import {explorerText} from "../messages";
-import type {Row} from "../tree/rows";
+import {displayLabel} from "../tree/rows";
+import type {Problem, Row} from "../tree/rows";
+import FileIcon from "./FileIcon.vue";
 
 const props = defineProps<{
     row: Row;
@@ -19,6 +22,10 @@ const props = defineProps<{
     projectTitle?: string | null;
     /** 内联输入（新建与改名）：名字、已换成文字的错误、是否在提交。 */
     edit?: {readonly name: string; readonly error: string | null; readonly busy: boolean} | null;
+    /** 设置“隐藏 Markdown 扩展名”；默认 false。 */
+    hideMarkdownExtension?: boolean;
+    /** 要加深的那一层缩进参考线（层号同 `depth`）；默认 null。 */
+    guideActive?: number | null;
 }>();
 
 const emit = defineEmits<{
@@ -64,41 +71,27 @@ const onEditKeydown = (event: KeyboardEvent): void => {
     }
 };
 
+/** 每层缩进；参考线画在上级展开箭头的中线（行的左内边距 8px 加箭头宽度的一半）。 */
 const INDENT = 12;
+const guideLeft = (level: number): string => `${String(16 + level * INDENT)}px`;
 
 const indent = computed(() => `${String(8 + props.row.depth * INDENT)}px`);
+
+/** 第 0 层是根（分节标题），它的子项不画线；从第 1 层画到本行的上一层。 */
+const guides = computed(() => Array.from({length: Math.max(0, props.row.depth - 1)}, (_, at) => at + 1));
 
 const label = computed(() => {
     const row = props.row;
     if (row.kind === "root") return row.scheme === "project" ? (props.projectTitle ?? explorerText(props.locale, "projectRoot")) : explorerText(props.locale, "userRoot");
-    if (row.kind === "entry") return row.label;
-    if (row.kind === "edit") return "";
-    switch (row.status) {
-        case "loading":
-            return explorerText(props.locale, "loading");
-        case "empty":
-            return explorerText(props.locale, "empty");
-        case "error":
-            return explorerText(props.locale, "readFailed", {reason: row.detail ?? row.code ?? ""});
-        case "manifest":
-            return explorerText(props.locale, row.code === "unreadable" ? "manifestUnreadable" : "manifestInvalid", {reason: row.detail ?? ""});
-    }
+    if (row.kind === "entry") return displayLabel(row, props.hideMarkdownExtension === true);
     return "";
 });
 
 const icon = computed(() => {
     const row = props.row;
-    if (row.kind === "root") return row.scheme === "project" ? "i-lucide-book-open" : "i-lucide-user";
-    if (row.kind === "edit") return row.entry === "directory" ? "i-lucide-folder" : "i-lucide-file";
+    if (row.kind === "edit") return row.entry === "directory" ? "folder" : "file";
     if (row.kind !== "entry") return null;
-    if (row.type === "missing") return "i-lucide-file-x";
-    if (row.type === "link") return "i-lucide-link";
-    if (row.manifest) return "i-lucide-file-code";
-    if (row.node) return row.body ? "i-lucide-file-text" : "i-lucide-folder-dot";
-    if (row.binder) return "i-lucide-book-marked";
-    if (row.folder === "content") return "i-lucide-library";
-    if (row.type === "directory") return row.expanded ? "i-lucide-folder-open" : "i-lucide-folder";
-    return "i-lucide-file";
+    return fileIconOf({kind: row.type, name: row.name, folder: row.folder, expanded: row.expanded, node: row.node, body: row.body});
 });
 
 const expandable = computed(() => {
@@ -109,22 +102,45 @@ const expandable = computed(() => {
 
 const expanded = computed(() => (props.row.kind === "root" || props.row.kind === "entry" ? props.row.expanded : false));
 
-const marks = computed(() => {
+const problem = computed((): Problem | null => (props.row.kind === "root" || props.row.kind === "entry" ? props.row.problem : null));
+
+/** 读取失败与清单问题的说明：悬停提示与可访问描述共用。 */
+const problemText = computed(() => {
+    const found = problem.value;
+    if (found === null) return null;
+    if (found.kind === "loading") return explorerText(props.locale, "loading");
+    if (found.kind === "error") return explorerText(props.locale, "readFailedRetry", {reason: found.detail ?? found.code});
+    return explorerText(props.locale, found.code === "unreadable" ? "manifestUnreadable" : "manifestInvalid", {reason: found.detail ?? ""});
+});
+
+/** 行尾的状态图标：图标与它的文字（悬停提示、可访问描述）。 */
+const marks = computed((): ReadonlyArray<{readonly icon: string; readonly text: string}> => {
     const row = props.row;
-    if (row.kind === "root") return row.status.kind === "unbound" ? [explorerText(props.locale, "noProject")] : [];
     if (row.kind !== "entry") return [];
-    const found: string[] = [];
-    if (row.type === "missing") found.push(explorerText(props.locale, "missing"));
-    if (row.listed === false) found.push(explorerText(props.locale, "unlisted"));
-    if (row.node && !row.body) found.push(explorerText(props.locale, "noBody"));
-    if (row.binder) found.push(explorerText(props.locale, "needsPlot"));
-    if (row.cut) found.push(explorerText(props.locale, "cutMark"));
+    const found: Array<{icon: string; text: string}> = [];
+    const add = (icon: string, key: "missing" | "unlisted" | "noBody" | "needsPlot" | "cutMark"): void => {
+        found.push({icon, text: explorerText(props.locale, key)});
+    };
+    if (row.type === "missing") add("i-lucide-ban", "missing");
+    if (row.listed === false) add("i-lucide-circle-dashed", "unlisted");
+    if (row.node && !row.body) add("i-lucide-file-minus", "noBody");
+    if (row.binder) add("i-lucide-puzzle", "needsPlot");
+    if (row.cut) add("i-lucide-scissors", "cutMark");
     return found;
 });
 
+/** 根没有绑定项目时的说明仍是文字：它是分节标题的一部分，不是某个资源的状态。 */
+const rootNote = computed(() => (props.row.kind === "root" && props.row.status.kind === "unbound" ? explorerText(props.locale, "noProject") : null));
+
 const position = computed(() => (props.row.kind === "entry" ? {posinset: props.row.position, setsize: props.row.siblings} : props.row.kind === "root" ? {posinset: props.row.scheme === "project" ? 1 : 2, setsize: 2} : null));
 
-const description = computed(() => (props.row.kind === "entry" ? props.row.address : undefined));
+const address = computed(() => (props.row.kind === "entry" ? props.row.address : undefined));
+
+/** 可访问描述：路径，再加状态与标记的文字。 */
+const description = computed(() => {
+    const parts = [address.value, problemText.value, ...marks.value.map((mark) => mark.text)].filter((part): part is string => part != null && part !== "");
+    return parts.length === 0 ? undefined : parts.join("；");
+});
 
 /** 输入框的可访问名称：说明在给什么起名字，当前值另由输入框自己读出。 */
 const inputLabel = computed(() => {
@@ -149,8 +165,9 @@ const inputLabel = computed(() => {
         :aria-expanded="row.kind === 'entry' && expandable ? expanded : undefined"
         :aria-description="description"
     >
+        <span v-for="level in guides" :key="level" class="explorer-guide" :data-guide-active="level === guideActive ? '' : undefined" :style="{left: guideLeft(level)}" aria-hidden="true"></span>
         <span class="h-4 w-4 shrink-0" aria-hidden="true"></span>
-        <span v-if="icon" :class="icon" class="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+        <FileIcon v-if="icon" :icon="icon" />
         <div ref="inputBox" class="min-w-0 flex-1" @keydown="onEditKeydown" @focusout="emit('edit-commit')" @click.stop @dblclick.stop>
             <FormInput
                 size="sm"
@@ -172,12 +189,17 @@ const inputLabel = computed(() => {
         >{{ edit.error }}</span>
     </div>
     <div
-        v-else-if="row.kind !== 'status'"
+        v-else
         :id="domId"
         role="treeitem"
-        class="explorer-row flex w-full min-w-0 cursor-default select-none items-center gap-1 rounded-[var(--radius-control)] pr-2 text-sm transition-colors [transition-duration:var(--motion-fast)]"
-        :class="[selected ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-main)] hover:bg-[var(--bg-hover)]', row.kind === 'entry' && (row.type === 'missing' || row.cut) ? 'opacity-60' : '']"
+        class="explorer-row flex w-full min-w-0 cursor-default select-none items-center gap-1 rounded-[var(--radius-control)] pr-2 transition-colors [transition-duration:var(--motion-fast)]"
+        :class="[
+            row.kind === 'root' ? 'explorer-row--root' : 'text-sm',
+            selected ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : row.kind === 'root' ? 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]' : 'text-[var(--text-main)] hover:bg-[var(--bg-hover)]',
+            row.kind === 'entry' && (row.type === 'missing' || row.cut) ? 'opacity-60' : '',
+        ]"
         :data-explorer-cut="row.kind === 'entry' && row.cut ? '' : undefined"
+        :data-explorer-problem="problem?.kind"
         :style="{height: `${height}px`, paddingLeft: indent}"
         :data-explorer-row="row.id"
         :data-active="active ? 'true' : undefined"
@@ -186,37 +208,50 @@ const inputLabel = computed(() => {
         :aria-posinset="position?.posinset"
         :aria-selected="selected"
         :aria-expanded="expandable ? expanded : undefined"
+        :aria-busy="problem?.kind === 'loading' ? 'true' : undefined"
         :aria-description="description"
-        :title="description"
+        :title="address"
         @click="emit('press', $event, 'row')"
         @dblclick="emit('activate')"
         @contextmenu.prevent="emit('context', $event)"
     >
+        <span v-for="level in guides" :key="level" class="explorer-guide" :data-guide-active="level === guideActive ? '' : undefined" :style="{left: guideLeft(level)}" aria-hidden="true"></span>
         <span
             class="flex h-4 w-4 shrink-0 items-center justify-center rounded"
             :class="expandable ? 'hover:bg-[var(--bg-subtle)]' : ''"
             data-explorer-twisty
             @click.stop="expandable ? emit('press', $event, 'twisty') : emit('press', $event, 'row')"
         >
-            <span v-if="expandable" class="i-lucide-chevron-right h-3.5 w-3.5 transition-transform" :class="expanded ? 'rotate-90' : ''"></span>
+            <span v-if="problem?.kind === 'loading'" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin text-[var(--text-muted)]" data-explorer-loading></span>
+            <span v-else-if="expandable" class="i-lucide-chevron-right h-3.5 w-3.5 transition-transform" :class="expanded ? 'rotate-90' : ''"></span>
         </span>
-        <span v-if="icon" :class="icon" class="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
-        <span class="min-w-0 shrink truncate" data-explorer-label>{{ label }}</span>
+        <FileIcon v-if="icon" :icon="icon" />
+        <span
+            class="min-w-0 shrink truncate"
+            :class="problem?.kind === 'error' ? 'text-[var(--status-danger)]' : problem?.kind === 'manifest' ? 'text-[var(--status-warning)]' : ''"
+            data-explorer-label
+        >{{ label }}</span>
         <span v-if="row.kind === 'entry' && row.subtitle" class="min-w-0 shrink-[2] truncate text-xs text-[var(--text-muted)]" data-explorer-subtitle>{{ row.subtitle }}</span>
-        <span v-for="mark in marks" :key="mark" class="shrink-0 text-xs text-[var(--text-muted)]" data-explorer-mark>{{ mark }}</span>
-    </div>
-    <div
-        v-else
-        :id="domId"
-        role="none"
-        class="flex w-full min-w-0 select-none items-center gap-1.5 pr-2 text-xs text-[var(--text-muted)]"
-        :style="{height: `${height}px`, paddingLeft: indent}"
-        :data-explorer-status="row.status"
-    >
-        <span v-if="row.status === 'loading'" class="i-lucide-loader-circle h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true"></span>
-        <span v-else-if="row.status === 'error' || row.status === 'manifest'" class="i-lucide-triangle-alert h-3.5 w-3.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true"></span>
-        <span class="min-w-0 truncate" :title="label">{{ label }}</span>
-        <button v-if="row.status === 'error'" type="button" tabindex="-1" class="shrink-0 rounded px-1 text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" data-explorer-retry @click="emit('retry')">{{ explorerText(locale, "retry") }}</button>
+        <span v-if="rootNote" class="shrink-0 truncate text-xs font-normal" data-explorer-mark>{{ rootNote }}</span>
+        <span class="ml-auto flex shrink-0 items-center gap-1 pl-1">
+            <Tooltip v-for="mark in marks" :key="mark.icon" :text="mark.text">
+                <span :class="mark.icon" class="h-3.5 w-3.5 text-[var(--text-muted)]" :aria-label="mark.text" role="img" :data-explorer-mark="mark.text"></span>
+            </Tooltip>
+            <Tooltip v-if="problem?.kind === 'error'" :text="problemText ?? ''">
+                <button
+                    type="button"
+                    tabindex="-1"
+                    class="flex h-4 w-4 items-center justify-center rounded text-[var(--status-danger)] hover:bg-[var(--bg-subtle)]"
+                    :aria-label="problemText ?? undefined"
+                    data-explorer-retry
+                    @click.stop="emit('retry')"
+                    @dblclick.stop
+                ><span class="i-lucide-circle-alert h-3.5 w-3.5"></span></button>
+            </Tooltip>
+            <Tooltip v-else-if="problem?.kind === 'manifest'" :text="problemText ?? ''">
+                <span class="i-lucide-triangle-alert h-3.5 w-3.5 text-[var(--status-warning)]" role="img" :aria-label="problemText ?? undefined" data-explorer-manifest-problem></span>
+            </Tooltip>
+        </span>
     </div>
 </template>
 
@@ -227,5 +262,28 @@ const inputLabel = computed(() => {
  */
 [data-explorer-tree]:focus-visible .explorer-row[data-active="true"] {
     box-shadow: inset 0 0 0 1.5px var(--focus-outline);
+}
+
+/* 根是分节标题：小一号、加粗，没有图标。 */
+.explorer-row--root {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+/* 缩进参考线：显示与否由树根上的 `data-guides` 决定（ExplorerTree）。 */
+.explorer-guide {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    pointer-events: none;
+    background: color-mix(in srgb, var(--text-main) 18%, transparent);
+    opacity: var(--explorer-guide-opacity, 0);
+    transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.explorer-guide[data-guide-active] {
+    background: color-mix(in srgb, var(--text-main) 45%, transparent);
 }
 </style>

@@ -97,6 +97,7 @@ const UNAVAILABLE: Readonly<Record<UnavailableReason, ExplorerMessage>> = {
     "unknown-outcome": "unavailableUnknown",
     "empty-clipboard": "unavailableEmptyClipboard",
     "cross-root": "unavailableCrossRoot",
+    "copy-failed": "unavailableCopyFailed",
 };
 
 export function unavailableText(locale: DisplayLocale, reason: UnavailableReason): string {

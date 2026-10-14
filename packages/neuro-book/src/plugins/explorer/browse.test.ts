@@ -8,7 +8,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {chmod, mkdir, rm, writeFile} from "node:fs/promises";
+import {chmod, mkdir, realpath, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {Type} from "typebox";
@@ -103,19 +103,19 @@ function registry(): CommandRegistry {
 }
 
 /** 登记一条记录调用的 `nbook.editor.open`；返回记录。 */
-function editor(commands: CommandRegistry): Array<{address: string; mode: string}> {
-    const opened: Array<{address: string; mode: string}> = [];
+function editor(commands: CommandRegistry): Array<{address: string; mode: string; group?: string}> {
+    const opened: Array<{address: string; mode: string; group?: string}> = [];
     const registered = commands.register({
         id: OPEN_COMMAND,
         source: "nbook.test-editor",
         declaration: {
             title: {"zh-CN": "打开", "en-US": "Open"},
             description: "Open a resource in the editor.",
-            args: Type.Object({address: Type.String(), mode: Type.Union([Type.Literal("preview"), Type.Literal("permanent")])}, {additionalProperties: false}),
+            args: Type.Object({address: Type.String(), mode: Type.Union([Type.Literal("preview"), Type.Literal("permanent")]), group: Type.Optional(Type.String())}, {additionalProperties: false}),
             effect: "read",
         },
         run: (args) => {
-            opened.push(args as {address: string; mode: string});
+            opened.push(args as {address: string; mode: string; group?: string});
             return {ok: true, value: null};
         },
     });
@@ -123,9 +123,10 @@ function editor(commands: CommandRegistry): Array<{address: string; mode: string
     return opened;
 }
 
-function explorer(at: World, options: {expanded?: string[]; commands?: CommandRegistry; client?: FilesService; bound?: boolean} = {}): ExplorerController {
+function explorer(at: World, options: {expanded?: string[]; commands?: CommandRegistry; client?: FilesService; bound?: boolean; clipboard?: {writeText(text: string): Promise<void>}} = {}): ExplorerController {
     const controller = createExplorerController({
         files: options.client ?? at.client,
+        ...(options.clipboard === undefined ? {} : {clipboard: options.clipboard}),
         commands: options.commands ?? registry(),
         bound: options.bound ?? true,
         ...(options.expanded === undefined ? {} : {expanded: options.expanded}),
@@ -170,10 +171,12 @@ describe("Spec workbench.files-explorer 验收 1、2：浏览", () => {
         expect(entry(controller, "project://plain/index.md")).toMatchObject({label: "index.md", opens: "project://plain/index.md"});
         expect(entry(controller, "project://lore.content/alice")).toMatchObject({label: "爱丽丝", subtitle: "alice", node: true, body: false});
         expect(entry(controller, "project://lore.content/bob")).toMatchObject({label: "鲍勃", body: true, opens: "project://lore.content/bob/index.md"});
-        expect(entry(controller, "project://lore.content/bob/sword")).toMatchObject({label: "宝剑", node: true});
+        // sword 里只有正文：真实 Files 标为叶子，没有展开控件；bob 另有子目录，可展开。
+        expect(entry(controller, "project://lore.content/bob/sword")).toMatchObject({label: "宝剑", node: true, expandable: false});
+        expect(entry(controller, "project://lore.content/bob")).toMatchObject({expandable: true});
         expect(row(controller, "project://lore.content/bob/index.md")).toBeUndefined();
         expect(entry(controller, "project://broken.content/child")).toMatchObject({node: false});
-        expect(row(controller, "project://broken.content#manifest")).toMatchObject({status: "manifest", code: "invalid"});
+        expect(entry(controller, "project://broken.content")).toMatchObject({label: "broken", subtitle: ".content", problem: {kind: "manifest", code: "invalid"}});
         expect(entry(controller, "project://story.binder")).toMatchObject({binder: true});
         expect(entry(controller, "project://story.binder/binder.xml")).toMatchObject({manifest: false});
         expect(row(controller, "user://")).toMatchObject({expanded: false});
@@ -200,17 +203,23 @@ describe("Spec workbench.files-explorer 验收 1、2：浏览", () => {
         expect(controller.rows.value.filter((candidate) => candidate.id.startsWith("project://") && candidate.id !== "project://")).toEqual([]);
     });
 
-    it.skipIf(privileged)("读取失败与空目录分开显示", async () => {
+    it.skipIf(privileged)("读取失败与空目录分开显示：失败挂在目录行上，重新列出在恢复权限后列出子项；空目录展开后没有行", async () => {
         const at = await world({"plain/a.md": "A", "empty/.keep": "", "locked/a.md": "L"});
         await rm(join(at.scene.project, "empty", ".keep"));
         await chmod(join(at.scene.project, "locked"), 0o000);
         const controller = explorer(at, {expanded: ["project://", "project://empty", "project://locked", "project://ghost"]});
-        await until(at, "empty 与 locked 列出", () => row(controller, "project://empty#empty") !== undefined && row(controller, "project://locked#error") !== undefined);
-        expect(row(controller, "project://locked#error")).toMatchObject({status: "error", code: "permission-denied"});
-        expect(row(controller, "project://locked#empty")).toBeUndefined();
+        await until(at, "empty 列出、locked 失败", () => controller.model.slots.value.get("project://empty")?.listing != null && entry(controller, "project://locked").problem?.kind === "error");
+        expect(entry(controller, "project://locked").problem).toMatchObject({kind: "error", code: "permission-denied"});
+        expect(entry(controller, "project://empty")).toMatchObject({expanded: true, problem: null});
+        expect(controller.rows.value.filter((candidate) => candidate.id.startsWith("project://empty/") || candidate.id.startsWith("project://locked/"))).toEqual([]);
         // 展开记录里的 ghost 在父目录列出后确认不存在：从展开集合去掉，不当作读取失败显示。
         expect(controller.model.expanded.value.has("project://ghost")).toBe(false);
-        expect(row(controller, "project://ghost#error")).toBeUndefined();
+        expect(row(controller, "project://ghost")).toBeUndefined();
+
+        await chmod(join(at.scene.project, "locked"), 0o755);
+        controller.model.retry("project://locked");
+        await until(at, "重新列出后 locked 有子项", () => row(controller, "project://locked/a.md") !== undefined);
+        expect(entry(controller, "project://locked").problem).toBeNull();
     });
 });
 
@@ -375,6 +384,60 @@ describe("Spec workbench.files-explorer 验收 2、3：点击与打开", () => {
         await until(at, "bob 展开", () => row(controller, "project://lore.content/bob/sword") !== undefined);
         expect(opened).toHaveLength(4);
         expect(controller.notice.value).toBeNull();
+    });
+
+    it("打开、在侧边打开作用于选择里能打开的项（目录跳过），侧边只有第一项带 group；复制路径与相对路径按树里的顺序每行一个", async () => {
+        const at = await world();
+        const commands = registry();
+        const opened = editor(commands);
+        const copied: string[] = [];
+        const controller = explorer(at, {expanded: ["project://", "project://plain"], commands, clipboard: {writeText: async (text) => {
+            copied.push(text);
+        }}});
+        await until(at, "plain 列出", () => row(controller, "project://plain/index.md") !== undefined);
+        controller.click("project://plain/sub", {toggle: false, range: false}, "row");
+        controller.click("project://plain/index.md", {toggle: false, range: true}, "row");
+        expect(controller.selection.value.selected).toEqual(["project://plain/sub", "project://plain/a.md", "project://plain/index.md"]);
+
+        expect(controller.openSelection(false)).toEqual({ok: true});
+        expect(controller.openSelection(true)).toEqual({ok: true});
+        await waitUntil("四次打开执行完", () => opened.length === 4);
+        expect(opened).toEqual([
+            {address: "project://plain/a.md", mode: "permanent"},
+            {address: "project://plain/index.md", mode: "permanent"},
+            {address: "project://plain/a.md", mode: "permanent", group: "side"},
+            {address: "project://plain/index.md", mode: "permanent"},
+        ]);
+
+        expect(await controller.copyPaths(true)).toEqual({ok: true});
+        expect(await controller.copyPaths(false)).toEqual({ok: true});
+        const real = await realpath(at.scene.project);
+        expect(copied).toEqual(["plain/sub\nplain/a.md\nplain/index.md", [join(real, "plain", "sub"), join(real, "plain", "a.md"), join(real, "plain", "index.md")].join("\n")]);
+
+        // 只选了目录：打开不可用。
+        controller.click("project://plain/sub", {toggle: false, range: false}, "row");
+        expect(controller.openSelection(false)).toEqual({ok: false, reason: "not-applicable"});
+
+        // 没有选择；没有系统剪贴板；剪贴板拒绝写入：都不可用，不写半截。
+        const bare = explorer(at, {expanded: ["project://", "project://plain"]});
+        expect(await bare.copyPaths(true)).toEqual({ok: false, reason: "no-selection"});
+        await until(at, "plain 列出", () => row(bare, "project://plain/a.md") !== undefined);
+        bare.click("project://plain/a.md", {toggle: false, range: false}, "row");
+        expect(await bare.copyPaths(true)).toEqual({ok: false, reason: "copy-failed"});
+        const reported: unknown[] = [];
+        const refusing = createExplorerController({
+            files: at.client,
+            commands: registry(),
+            bound: true,
+            expanded: ["project://", "project://plain"],
+            clipboard: {writeText: () => Promise.reject(new Error("剪贴板不可用"))},
+            report: (error) => reported.push(error),
+        });
+        controllers.push(refusing);
+        await until(at, "plain 列出", () => row(refusing, "project://plain/a.md") !== undefined);
+        refusing.click("project://plain/a.md", {toggle: false, range: false}, "row");
+        expect(await refusing.copyPaths(false)).toEqual({ok: false, reason: "copy-failed"});
+        expect(reported).toEqual([new Error("剪贴板不可用")]);
     });
 
     it("编辑器区还没有：打开显示“编辑器尚未接入”，不伪装成功", async () => {

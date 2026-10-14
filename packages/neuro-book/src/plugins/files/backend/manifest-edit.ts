@@ -41,6 +41,8 @@ export type Edit =
     | {readonly kind: "insert"; readonly level: Level; readonly item: ItemNode; readonly before?: string; readonly strict?: boolean}
     | {readonly kind: "remove"; readonly level: Level; readonly name: string}
     | {readonly kind: "rename"; readonly level: Level; readonly from: string; readonly to: string}
+    /** 把这一层已有的一个条目挪到 `before` 之前；`before` 缺省或不在这一层时挪到末尾。条目不在清单里为 `absent`。 */
+    | {readonly kind: "place"; readonly level: Level; readonly name: string; readonly before?: string}
     /** `names` 必须恰好是这一层现有条目的一个排列。 */
     | {readonly kind: "reorder"; readonly level: Level; readonly names: ReadonlyArray<string>}
     /** `null` 去掉，`undefined` 不改。 */
@@ -110,6 +112,15 @@ export function applyEdit(text: string, edit: Edit): EditOutcome {
             if (at(edit.to) >= 0) return {status: "absent", detail: `清单里已有 ${edit.to}`};
             const node = children[index] as OrderedNode;
             children[index] = {...node, ":@": {...attributesOf(node), name: edit.to}};
+            break;
+        }
+        case "place": {
+            const index = at(edit.name);
+            if (index < 0) return {status: "absent", detail: `${edit.name} 不在清单里`};
+            if (edit.before === edit.name) break;
+            const [node] = children.splice(index, 1);
+            const before = edit.before === undefined ? -1 : at(edit.before);
+            children.splice(before < 0 ? children.length : before, 0, node as OrderedNode);
             break;
         }
         case "reorder": {

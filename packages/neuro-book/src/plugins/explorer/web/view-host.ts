@@ -15,7 +15,7 @@ import {OPEN_PROJECT_COMMAND} from "nbook/plugins/projects/shared/contracts";
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import type {DropZone} from "./actions/drop";
+import type {DropOver} from "./actions/drop";
 import type {CollisionChoice} from "./actions/paste-plan";
 import type {KeyOutcome} from "./controller";
 import {nameErrorText} from "./feedback-text";
@@ -38,6 +38,8 @@ export interface ExplorerViewHostOptions {
     readonly locale: ComputedRef<DisplayLocale>;
     /** 窗口绑定的作品的显示名，项目根显示它；没有绑定项目时为 null。 */
     readonly projectTitle: string | null;
+    /** 资源管理器的两个设置项（`shared/settings.ts`），改了即时生效。 */
+    readonly display: ComputedRef<{readonly indentGuides: "none" | "hover" | "always"; readonly hideMarkdownExtension: boolean}>;
     /** 命令执行失败（界面已经可用时不该发生）：记诊断。 */
     readonly report: (id: string, reason: string) => void;
 }
@@ -122,6 +124,8 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     focus: selection?.focus ?? null,
                     ready: controller !== null,
                     projectTitle: options.projectTitle,
+                    indentGuides: options.display.value.indentGuides,
+                    hideMarkdownExtension: options.display.value.hideMarkdownExtension,
                     notice: controller?.notice.value ?? null,
                     problem: session.problem.value,
                     editing: editing === null ? null : {
@@ -136,6 +140,7 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     running: controller?.running.value ?? null,
                     unknown: controller?.unknown.value ?? null,
                     drag: controller?.drag.value ?? null,
+                    motion: controller?.motion.value ?? null,
                     startDrag: (id: string): boolean => controller?.startDrag(id) ?? false,
                     focusRequest: controller?.focusRequest.value ?? 0,
                     handleKey: (key: TreeKey, page: number): KeyOutcome => controller?.key(key, page) ?? "none",
@@ -170,8 +175,9 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     onDirtyCopy: (choice: "save" | "disk" | "cancel") => controller?.answerDirtyCopy(choice),
                     onRecheck: () => controller?.recheck(),
                     onAbandon: () => controller?.abandon(),
-                    onDragHover: (over: {readonly id: string; readonly zone: DropZone} | null) => controller?.hoverDrag(over),
-                    onDragDrop: (over: {readonly id: string; readonly zone: DropZone} | null) => void controller?.dropDrag(over),
+                    onDragHover: (over: DropOver | null) => controller?.hoverDrag(over),
+                    onDragDrop: (over: DropOver | null) => void controller?.dropDrag(over),
+                    onDragExpand: (id: string) => controller?.model.expand(id),
                     onDragCancel: () => controller?.cancelDrag(),
                 });
             };

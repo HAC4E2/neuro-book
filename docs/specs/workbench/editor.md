@@ -38,7 +38,7 @@ owners:
 
 - 插件 `nbook.editor` 只有浏览器入口；依赖 `nbook.files` 的文件客户端、命令服务、Storage、窗口的项目绑定、配置、宿主时钟与宿主的抢救能力（[runtime.browser-host](../runtime/browser-host.md)）。
 - 编辑器槽：工作台的贡献点 `workbench.editor-area`（[ui.workbench-shell](../ui/workbench-shell.md)）。
-- 打开：命令 `nbook.editor.open {address, mode: "preview" | "permanent", editor?: "markdown" | "code", reveal?: "end"}`；`editor` 缺省按类型：`.md` 为 `markdown`，其余可编辑文本为 `code`；`reveal: "end"` 打开后把光标放到末尾（输出 29）。
+- 打开：命令 `nbook.editor.open {address, mode: "preview" | "permanent", editor?: "markdown" | "code", reveal?: "end", group?: string}`；`editor` 缺省按类型：`.md` 为 `markdown`，其余可编辑文本为 `code`；`reveal: "end"` 打开后把光标放到末尾（输出 29）；`group` 见输出 35。
 - 页面贡献点 `editor.pages`（输出 33，只接受浏览器入口）：声明 `{title, icon, openOnFirstVisit?}`，实现 `{load(): Promise<Component>}`，组件收到 `{context: {recent}}`（`recent` 是输出 31 的最近打开）。页面 id 的规则与视图相同。
 - 地址参数：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
 - 命令（`editor` 域；参数为 `{}` 的作用于活动编辑组的活动标签）：
@@ -157,6 +157,10 @@ owners:
 33. **页面标签**：贡献点 `editor.pages` 登记不对应文件的页面（例如欢迎页）。`nbook.editor.open-page {id}` 打开它：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签；贡献方还没交付实现时为 `unavailable`。页面标签显示页面标题，内容区渲染页面组件；它没有文档：不读磁盘、不算 dirty、没有光标与字数，不能拆分、不能换编辑器，可以照常关闭。页面标签不进第 5 条的会话记录，刷新后不恢复（活动的是页面时，记录里的活动项是它左边最近的文件标签）。`nbook.editor.open` 不接受页面地址。声明 `openOnFirstVisit` 的页面在这部作品第一次在本窗口打开（会话记录读到“不存在”）时自动打开，晚交付的等交付后再开；带继续写作参数打开时不自动打开。贡献方停止后已开的页面标签说明“这个页面已经不在了”。
 34. **编辑区标题**：活动编辑组的标签条右侧是标题动作（别的组不画：编辑器的命令与它们的可用性都按活动组算）：编辑器自己的“向右拆分”（按钮）与“用其它编辑器重新打开”（“⋯”里），之后是别的插件经贡献点 `editor.title` 贡献的项（共同规则见 [`workbench.menus`](menus.md)）。当前文件是这个组的活动标签：是文件时给出它的地址，`context: "resource"` 的项执行时收到 `{address}`；是页面标签或组里没有标签时没有当前文件。按钮（自己的加贡献来的）至多 4 个；编辑组窄时按它的宽度再少，给标签条至少留一个截断标签的宽度（96px），一个按钮也放不下时只剩“⋯”。放不下的按钮回到它所在的节收进“⋯”（编辑器自己的在自己那一节，贡献的在它原来的节）。另一个组成为活动组时，标题动作随之移到那个组；“⋯”打开期间活动组或活动标签变了，菜单关闭、之前的选择不执行。标签多时标签条照旧横向滚动，标题动作不随之滚动。
 
+**打开到哪一组**
+
+35. **指定编辑组**：`nbook.editor.open` 的 `group` 缺省在活动组打开；给编辑组的 id 时在那一组打开并让它成为活动组，id 不存在（组已关闭）为 `unavailable`；给 `"side"` 时在活动组右侧相邻的组打开，右侧没有组就先向右拆分出一个空组（不带走活动标签）再打开。编辑组的根元素带 `data-editor-group="<组 id>"`：这是给别的插件拖放用的公开标记，拖动到它上面放下的一方读这个属性、执行带 `group` 的 `open`（资源管理器的“拖到编辑区”，[workbench.files-explorer](files-explorer.md) 的“拖动”）；标记的名字与取值变化按公开接口处理。
+
 ## 状态与转换
 
 | 文档状态 | 进入 | 离开 |
@@ -231,6 +235,7 @@ Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、
 
 ## 证据
 
+- 批准依据：输出 35（`group` 参数与 `data-editor-group` 公开标记）来自[t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)与[实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/plan.md)，开发者 2026-10-14 确认。
 - 批准依据：输出 30–33 为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 4 节，开发者 2026-10-12 确认；[NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 第 5 节（编辑器组件从旧包迁入）与推进顺序第 6 条；[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（沿用第一版切换设计）；本 Spec 的取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t71 条目（按推荐先做，待开发者追认）；输出 32 的空态改为标志与提示，为 t79 计划第二轮第 11 节，开发者 2026-10-12 选第五轮稿 E1。
 - 实现入口：[`editor/plugin.ts`](../../../packages/neuro-book/src/plugins/editor/plugin.ts)、[`editor/web/area.ts`](../../../packages/neuro-book/src/plugins/editor/web/area.ts)、[`documents/store.ts`](../../../packages/neuro-book/src/plugins/editor/web/documents/store.ts)
 - 合同测试：编辑区标题（输出 34）为 [`editor/title-actions.test.ts`](../../../packages/neuro-book/src/plugins/editor/title-actions.test.ts)（真实命令注册表与编辑组布局：自己的与贡献的项、按后缀、resource 参数、按钮上限、菜单身份）；空编辑组的提示（输出 32）为 [`editor/empty-tips.test.ts`](../../../packages/neuro-book/src/plugins/editor/empty-tips.test.ts)（真实命令系统：筛选、按键与位置、语言）；页面标签（输出 33）为 `area.test.ts` 的“页面标签”一例与 `groups.test.ts` 的“页面标签不进快照”一例；上次的光标与最近打开（输出 30、31）为 `area.test.ts` 的“上次的光标与最近打开”一组、`groups.test.ts` 的快照往返、[`editor/recent.test.ts`](../../../packages/neuro-book/src/plugins/editor/recent.test.ts)（真实 Storage 场地）；[`editor/status-items.test.ts`](../../../packages/neuro-book/src/plugins/editor/status-items.test.ts)（状态栏条目，场景 12–14、16）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/shared/word-count.test.ts)、[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)

@@ -61,7 +61,7 @@ test("Lab 集成场景：删除、剪切粘贴（同名改名）改变场景数�
     page.on("websocket", (socket) => requests.push(`websocket ${socket.url()}`));
 
     await expect(item(page, "project://lore.content/alice")).toContainText("爱丽丝");
-    await expect(item(page, "project://lore.content/gone")).toContainText("缺失");
+    await expect(item(page, "project://lore.content/gone")).toHaveAttribute("aria-description", /缺失/u);
     await expect(page.locator("[data-lab-explorer-watchers]")).toHaveText("订阅 2");
 
     // 删除：确认框默认在取消上，Tab 到删除再确认。

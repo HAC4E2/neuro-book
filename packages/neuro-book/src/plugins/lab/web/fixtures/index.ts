@@ -6,6 +6,7 @@ import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
+import type FileIcon from "nbook/plugins/explorer/web/components/FileIcon.vue";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -522,17 +523,21 @@ export const labFixtures: LabFixture[] = [
         events: ["press", "activate", "context", "retry"],
         class: "w-full",
         scenes: (() => {
-            const scene = (id: string, label: string, index: number, extra: {selected?: boolean; active?: boolean; edit?: {name: string; error: string | null; busy: boolean}} = {}) => ({id, label, input: {props: {row: EXPLORER_ROWS[index] as (typeof EXPLORER_ROWS)[number], locale: "zh-CN" as const, domId: `lab-row-${id}`, selected: extra.selected ?? false, active: extra.active ?? false, height: 26, edit: extra.edit ?? null}}});
+            const scene = (id: string, label: string, index: number, extra: {selected?: boolean; active?: boolean; edit?: {name: string; error: string | null; busy: boolean}; hideMarkdownExtension?: boolean} = {}) => ({id, label, input: {props: {row: EXPLORER_ROWS[index] as (typeof EXPLORER_ROWS)[number], locale: "zh-CN" as const, domId: `lab-row-${id}`, selected: extra.selected ?? false, active: extra.active ?? false, height: 26, edit: extra.edit ?? null, hideMarkdownExtension: extra.hideMarkdownExtension ?? false}}});
             return [
                 scene("node", "内容节点：展示名与真实名字", 3),
                 scene("selected", "选中并有焦点框", 3, {selected: true, active: true}),
                 scene("no-body", "无正文的节点", 2),
-                scene("missing", "缺失条目", 4),
-                scene("unlisted", "未列入项", 5),
-                scene("binder", "活页夹：需要剧情插件", 9),
-                scene("manifest-error", "清单不合法", 7),
-                scene("error", "读取失败", 13),
-                scene("root", "根", 0),
+                scene("leaf", "只有正文的节点：没有展开控件", 5),
+                scene("missing", "缺失条目", 6),
+                scene("unlisted", "未列入项", 7),
+                scene("binder", "活页夹：需要剧情插件", 10),
+                scene("content-folder", "内容文件夹：去掉后缀", 1),
+                scene("manifest-error", "清单不合法", 8),
+                scene("loading", "列出中", 11),
+                scene("error", "读取失败", 12),
+                scene("hide-md", "隐藏 Markdown 扩展名", 14, {hideMarkdownExtension: true}),
+                scene("root", "根：分节标题", 0),
                 scene("rename", "改名：名字冲突的提示", 3, {selected: true, edit: {name: "alice", error: "已存在同名项", busy: false}}),
             ];
         })(),
@@ -543,12 +548,22 @@ export const labFixtures: LabFixture[] = [
         events: ["row-press", "row-activate", "row-context", "retry", "focus-change"],
         class: "h-full w-full",
         scenes: [
-            {id: "kinds", label: "三类文件夹与状态行", input: {props: {rows: EXPLORER_ROWS, selected: ["project://lore.content/bob"], focus: "project://lore.content/bob", locale: "zh-CN", label: "文件"}}},
+            {id: "kinds", label: "三类文件夹与行上的状态", input: {props: {rows: EXPLORER_ROWS, selected: ["project://lore.content/bob"], focus: "project://lore.content/bob", locale: "zh-CN", label: "文件"}}},
+            {id: "guides", label: "缩进参考线一直显示、焦点那一层加深", input: {props: {rows: EXPLORER_ROWS, selected: ["project://lore.content/carol"], focus: "project://lore.content/carol", locale: "zh-CN", label: "文件", indentGuides: "always"}}},
             {id: "many", label: "五百行：虚拟滚动与长名字", input: {props: {rows: manyRows(500), selected: [], focus: null, locale: "zh-CN", label: "文件"}}},
             {id: "english", label: "英文界面", input: {props: {rows: EXPLORER_ROWS, selected: [], focus: null, locale: "en-US", label: "Files"}}},
         ],
         runtimeProps: async () => ({handleKey: () => "none" as const}),
         subject: () => import("nbook/plugins/explorer/web/components/ExplorerTree.vue"),
+    }),
+    defineLabFixture<typeof FileIcon>({
+        component: "FileIcon",
+        scenes: [
+            {id: "markdown", label: "Markdown 文件", input: {props: {icon: "markdown"}}},
+            {id: "content-open", label: "展开的内容文件夹", input: {props: {icon: "folder-content-open"}}},
+            {id: "image", label: "图片", input: {props: {icon: "image"}}},
+        ],
+        load: async () => (await import("./FileIconFixture.vue")).default,
     }),
     defineSubjectFixture<typeof ExplorerFeedback>({
         component: "ExplorerFeedback",

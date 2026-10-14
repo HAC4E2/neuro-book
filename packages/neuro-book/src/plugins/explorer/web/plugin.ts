@@ -13,7 +13,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {COMMANDS_POINT, commandServiceKey, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {documentCoordinatorKey} from "nbook/plugins/editor/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
-import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, SETTINGS_SECTIONS_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
@@ -25,6 +25,7 @@ import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
 import {EXPLORER_CONTEXT_POINT, validateExplorerContextItem} from "../shared/contracts";
+import {EXPLORER_SECTION, EXPLORER_SECTION_DECLARATION, hideMarkdownExtensionSetting, indentGuidesSetting} from "../shared/settings";
 import type {ExplorerContextItemDeclaration} from "../shared/contracts";
 import {COLLAPSE_ALL_COMMAND, EXPLORER_COMMAND_DECLARATIONS, explorerCommands, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, REFRESH_FILES_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./commands";
 import {explorerLocalized} from "./messages";
@@ -75,6 +76,14 @@ function revealOnOpen(state: {read(key: string): PublicStateRead}, controller: (
     signal.addEventListener("abort", stop, {once: true});
 }
 
+/**
+ * 系统剪贴板：只在安全上下文里有（本机服务的 http://127.0.0.1 算）；没有时“复制路径”不可用。这个文件也由不带 DOM 类型的
+ * tsc 检查，所以按需要的那一个方法取，不引用 `Navigator` 的完整类型。
+ */
+function systemClipboard(): {writeText(text: string): Promise<void>} | undefined {
+    return (globalThis as {readonly navigator?: {readonly clipboard?: {writeText(text: string): Promise<void>}}}).navigator?.clipboard;
+}
+
 export const explorerBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     // 右键菜单的贡献点：菜单项只有声明，同工作台的菜单位置交空实现（docs/specs/workbench/menus.md）。
@@ -88,6 +97,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
         receives: [EXPLORER_CONTEXT_POINT],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: EXPLORER_VIEW_ID, declaration: VIEW},
+            {capability: SETTINGS_SECTIONS_POINT, id: EXPLORER_SECTION, declaration: EXPLORER_SECTION_DECLARATION},
             ...Object.entries(EXPLORER_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...explorerState.contributions,
         ],
@@ -105,6 +115,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
             const session = createExplorerSession({
                 files: context.services.require(filesKey),
                 ...(documents.status === "resolved" ? {documents: documents.instance} : {}),
+                ...(systemClipboard() === undefined ? {} : {clipboard: systemClipboard()}),
                 commands,
                 bound,
                 createStore: () => explorerStoreFor(bound).create(context, {storage, diagnostics}),
@@ -132,6 +143,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
                     contextMenu,
                     locale,
                     projectTitle: context.services.require(windowProjectKey).project?.title ?? null,
+                    display: computed(() => ({indentGuides: settings.get(indentGuidesSetting), hideMarkdownExtension: settings.get(hideMarkdownExtensionSetting)})),
                     report: (id, reason) => diagnostics.record({level: "warn", event: "explorer.command", message: `${id} 执行失败：${reason}`, source: {plugin: descriptor.id}}),
                 }),
             };
@@ -140,6 +152,8 @@ export const explorerBrowserPlugin: PluginDefinition = {
                 receivers: {[EXPLORER_CONTEXT_POINT]: contextMenu.receiver()},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[EXPLORER_VIEW_ID]: view},
+                    // list 分区没有要实现的东西，设置窗口照声明画配置项（docs/specs/settings/settings-window.md）。
+                    [SETTINGS_SECTIONS_POINT]: {[EXPLORER_SECTION]: Object.freeze({})},
                     [COMMANDS_POINT]: explorerCommands(session, () => locale.value),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
                 },

@@ -9,7 +9,7 @@ import type {DirectoryEntry, Listing} from "nbook/plugins/files/shared/contracts
 
 import type {DirectorySlot, RootState} from "../tree/model";
 import {projectRows} from "../tree/rows";
-import {resolveDrop, zoneOf} from "./drop";
+import {resolveBlankDrop, resolveDrop, resolveEditorDrop} from "./drop";
 import {candidateName, planNames} from "./paste-plan";
 import type {CollisionChoice, PlanSource} from "./paste-plan";
 import {placeNames, shiftNames} from "./reorder-plan";
@@ -28,13 +28,16 @@ const ROWS = projectRows({
         ["project://lore.content", loaded({folder: "content", contentRoot: "lore.content", manifest: {status: "ok"}, entries: [
             dir("a", {listed: true}), dir("b", {listed: true}), dir("c", {listed: true}), {name: "gone", kind: "missing", listed: true}, {name: "x.md", kind: "file", listed: false},
         ]})],
+        ["project://lore.content/b", loaded({folder: "content", contentRoot: "lore.content", manifest: {status: "ok"}, entries: [{name: "k.md", kind: "file", listed: true}, {name: "l.md", kind: "file", listed: true}]})],
     ]),
-    expanded: new Set(["project://", "project://plain", "project://lore.content"]),
+    expanded: new Set(["project://", "project://plain", "project://lore.content", "project://lore.content/b"]),
     showManifests: false,
 });
 const row = (id: string) => ROWS.find((candidate) => candidate.id === id);
 const ORDER = ["a", "b", "c", "gone"];
-const order = (parent: string) => (parent === "project://lore.content" ? ORDER : null);
+const order = (parent: string) => (parent === "project://lore.content" ? ORDER : parent === "project://lore.content/b" ? ["k.md", "l.md"] : null);
+/** 落在 `id` 那一行：`offset` 是纵向比例，`x` 是相对行左边的像素（200 在名字上，取最深的一层）。 */
+const drop = (sources: ReadonlyArray<string>, id: string, offset: number, x = 200) => resolveDrop(sources, ROWS, {id, offset, x}, order);
 
 describe("Spec workbench.files-explorer 上移 / 下移与拖动排序：变换", () => {
     it("整体移动一位并保持相对顺序；已在首末的一段不动；没有变化为 null", () => {
@@ -53,30 +56,61 @@ describe("Spec workbench.files-explorer 上移 / 下移与拖动排序：变换"
 });
 
 describe("Spec workbench.files-explorer 拖动：落点", () => {
-    it("行里的位置：目录行上中下三段，其它行上下两半", () => {
-        expect([0.1, 0.5, 0.9].map((offset) => zoneOf(row("project://plain")!, offset))).toEqual(["before", "inside", "after"]);
-        expect([0.3, 0.7].map((offset) => zoneOf(row("project://a.md")!, offset))).toEqual(["before", "after"]);
+    it("目录行中段移入（内容树里的目录标为有序）；源已在的目录、自己与后代、缺失条目、未绑定的根没有落点", () => {
+        expect(drop(["project://a.md"], "project://plain", 0.5)).toEqual({kind: "move", target: "project://plain", ordered: false});
+        expect(drop(["project://a.md"], "project://lore.content", 0.5)).toEqual({kind: "move", target: "project://lore.content", ordered: true});
+        expect(drop(["project://a.md"], "project://lore.content/c", 0.5)).toEqual({kind: "move", target: "project://lore.content/c", ordered: true});
+        expect(drop(["project://plain/b.md"], "project://", 0.1)).toEqual({kind: "move", target: "project://", ordered: false});
+        expect(drop(["project://plain/b.md"], "project://plain", 0.5)).toEqual({kind: "none"});
+        expect(drop(["project://plain"], "project://plain/sub", 0.5)).toEqual({kind: "none"});
+        expect(drop(["project://plain"], "project://plain", 0.5)).toEqual({kind: "none"});
+        expect(drop(["project://a.md"], "project://lore.content/gone", 0.9)).toEqual({kind: "none"});
+        expect(drop(["project://a.md"], "user://", 0.5)).toEqual({kind: "none"});
     });
 
-    it("目录行中间移入；源已在的目录、自己与后代、缺失条目、未绑定的根没有落点", () => {
-        expect(resolveDrop(["project://a.md"], row("project://plain"), "inside", order)).toEqual({kind: "move", target: "project://plain"});
-        expect(resolveDrop(["project://plain/b.md"], row("project://"), "before", order)).toEqual({kind: "move", target: "project://"});
-        expect(resolveDrop(["project://plain/b.md"], row("project://plain"), "inside", order)).toEqual({kind: "none"});
-        expect(resolveDrop(["project://plain"], row("project://plain/sub"), "inside", order)).toEqual({kind: "none"});
-        expect(resolveDrop(["project://plain"], row("project://plain"), "inside", order)).toEqual({kind: "none"});
-        expect(resolveDrop(["project://a.md"], row("project://lore.content/gone"), "after", order)).toEqual({kind: "none"});
-        expect(resolveDrop(["project://a.md"], row("user://"), "inside", order)).toEqual({kind: "none"});
-        expect(resolveDrop(["project://a.md"], row("project://plain/b.md"), "after", order)).toEqual({kind: "none"});
+    it("普通文件夹里的缝移入接收目录；子树末尾按横向位置选层，往左到上一层", () => {
+        expect(drop(["project://a.md"], "project://plain/b.md", 0.9)).toEqual({kind: "move", target: "project://plain", ordered: false});
+        expect(drop(["project://a.md"], "project://plain/sub", 0.1)).toEqual({kind: "move", target: "project://plain", ordered: false});
+        // 同一条缝靠左：接收目录是根，源已在根里，没有落点。
+        expect(drop(["project://a.md"], "project://plain/b.md", 0.9, 10)).toEqual({kind: "none"});
+        expect(drop(["project://plain/sub"], "project://plain/b.md", 0.1)).toEqual({kind: "none"});
     });
 
-    it("内容文件夹里同一层两行之间调整顺序；“之后”落在下一项之前；不在清单里的源或别层的源没有排序落点", () => {
-        expect(resolveDrop(["project://lore.content/c"], row("project://lore.content/a"), "before", order)).toEqual({kind: "reorder", parent: "project://lore.content", names: ["c", "a", "b", "gone"], anchor: "project://lore.content/a", zone: "before"});
-        expect(resolveDrop(["project://lore.content/a"], row("project://lore.content/b"), "after", order)).toEqual({kind: "reorder", parent: "project://lore.content", names: ["b", "a", "c", "gone"], anchor: "project://lore.content/b", zone: "after"});
-        expect(resolveDrop(["project://lore.content/b"], row("project://lore.content/a"), "after", order)).toEqual({kind: "none"});
-        expect(resolveDrop(["project://lore.content/x.md"], row("project://lore.content/a"), "before", order)).toEqual({kind: "none"});
-        expect(resolveDrop(["project://a.md"], row("project://lore.content/a"), "before", order)).toEqual({kind: "none"});
-        expect(resolveDrop(["project://lore.content/c"], row("project://lore.content/a"), "inside", order)).toEqual({kind: "move", target: "project://lore.content/a"});
+    it("内容文件夹里：展开目录与第一个子项之间放到第一项之前；同一层调整顺序，“之后”落在下一个不被拖动的项之前；没有变化没有落点", () => {
+        expect(drop(["project://lore.content/c"], "project://lore.content/a", 0.1)).toEqual({kind: "reorder", parent: "project://lore.content", names: ["c", "a", "b", "gone"], before: "a", line: {row: "project://lore.content", depth: 2}, anchor: {id: "project://lore.content/a", side: "before"}});
+        expect(drop(["project://lore.content/a"], "project://lore.content/c", 0.9)).toEqual({kind: "reorder", parent: "project://lore.content", names: ["b", "c", "a", "gone"], before: "gone", line: {row: "project://lore.content/c", depth: 2}, anchor: {id: "project://lore.content/c", side: "after"}});
+        expect(drop(["project://lore.content/b"], "project://lore.content/a", 0.9)).toEqual({kind: "none"});
+        // 落在自己的子树里。
+        expect(drop(["project://lore.content/b"], "project://lore.content/b/k.md", 0.9)).toEqual({kind: "none"});
     });
+
+    it("内容文件夹里别层或外面的源：移动并放到那个位置；子树末尾靠右进节点、靠左放到节点之后", () => {
+        expect(drop(["project://a.md"], "project://lore.content", 0.9)).toEqual({kind: "place", target: "project://lore.content", before: "a", line: {row: "project://lore.content", depth: 2}, anchor: {id: "project://lore.content/a", side: "before"}});
+        expect(drop(["project://lore.content/a"], "project://lore.content/b", 0.9)).toMatchObject({kind: "place", target: "project://lore.content/b", before: "k.md"});
+        expect(drop(["project://a.md"], "project://lore.content/b/l.md", 0.9)).toEqual({kind: "place", target: "project://lore.content/b", before: null, line: {row: "project://lore.content/b/l.md", depth: 3}, anchor: {id: "project://lore.content/b/l.md", side: "after"}});
+        expect(drop(["project://a.md"], "project://lore.content/b/l.md", 0.9, 30)).toEqual({kind: "place", target: "project://lore.content", before: "c", line: {row: "project://lore.content/b/l.md", depth: 2}, anchor: {id: "project://lore.content/b", side: "after"}});
+        // 多选里混着这一层的项：整批放到同一个位置（服务端把这一层的那项也挪过去）。
+        expect(drop(["project://lore.content/a", "project://lore.content/b/k.md"], "project://lore.content/c", 0.9)).toMatchObject({kind: "place", target: "project://lore.content", before: "gone"});
+        // 未列入项之后：清单里没有它，放到末尾。
+        expect(drop(["project://a.md"], "project://lore.content/x.md", 0.9)).toMatchObject({kind: "place", target: "project://lore.content", before: null});
+    });
+
+    it("树里行以外的空白移入源所在方案的根；编辑组打开源里能打开的项、目录跳过、超过上限的计数", () => {
+        const find = (id: string) => row(id);
+        expect(resolveBlankDrop(["project://plain/b.md"], find)).toEqual({kind: "move", target: "project://", ordered: false});
+        expect(resolveBlankDrop(["project://a.md"], find)).toEqual({kind: "none"});
+        expect(resolveEditorDrop(["project://a.md", "project://plain/sub", "project://plain/b.md"], "g1", find)).toEqual({kind: "open", group: "g1", addresses: ["project://a.md", "project://plain/b.md"], skipped: 0});
+        expect(resolveEditorDrop(["project://plain/sub"], "g1", find)).toEqual({kind: "none"});
+        const many = projectRows({
+            roots: ROOTS,
+            slots: new Map([["project://", loaded({folder: "plain", contentRoot: null, entries: Array.from({length: 12}, (_, at) => ({name: `${String(at)}.md`, kind: "file" as const}))})]]),
+            expanded: new Set(["project://"]),
+            showManifests: false,
+        });
+        const sources = Array.from({length: 12}, (_, at) => `project://${String(at)}.md`);
+        expect(resolveEditorDrop(sources, "g1", (id) => many.find((candidate) => candidate.id === id))).toMatchObject({kind: "open", skipped: 2, addresses: sources.slice(0, 10)});
+    });
+
 });
 
 describe("Spec workbench.files-explorer 验收 7：粘贴的名字", () => {
