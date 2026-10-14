@@ -34,6 +34,13 @@ updated: 2026-10-14
   - 验证（`1223b4906`）：typecheck 0；neuro-book Bun 1102 例与 Vitest 209 例通过（Files 订阅的一例在全量负载下偶发失败一次，单独跑与再跑两次全量都通过，与本次改动无关）；新应用全套 e2e 200 例通过（审查修正之前跑的），修正后资源管理器 e2e 16 例通过；`test:affected --typecheck --since master` 只剩已知的 llmlint 两项与 neuro-book-test-support 一项；`docs:check`、`governance:check` 0 失败。收口截图（开发服务里的雾港，nbook、macos × 明暗，无页面错误）：[final-themes.webp](evidences/final-themes.webp)、右键菜单 [context-menu.webp](evidences/context-menu.webp)。
   - 未验证：触摸设备上的停留展开与边缘滚动只看了代码；跨机器访问时“复制路径”给的是服务端机器上的路径（Spec 写明）。
 - 2026-10-14 验收时开发者要求拖动再设计一轮：内容文件夹（如 `.content`）里要能拖动排序；落点指示的样式与位置要改；看哪里适合加动画（例如放下后的移动）。第四轮评审板（review v5）在开发服务的雾港上按住拖动、藏掉现有反馈、注入候选截图（样例的 `设定/人物.content` 加了几项和一个有子项的节点“港务局”），动画用页内的 CSS 示意。实测现状：别的层拖到内容文件夹的两行之间显示“移入 人物”，放下后排在最后；子树末尾的缝只能进那个节点；插入线横贯整行、带光晕、看不出层级；移入的浅底四边内缩 6px，顶边压在目录行中间、底边截半行，收起的文件夹只剩细胶囊；被拖行淡化时左边的参考线出现缺口。文件服务的批量移动目前不带位置，选 A 要给它加“放到某项之前”。
+- 2026-10-14 第四轮实施（同一分支，[计划](plan.md)的“第四轮”；开发者要求不做实现审查，直接交验收）：
+  - S7 Spec（`7fe080b3c`）：files-explorer 的落点、反馈、动画与验收 25、27、28，files 的“移动到指定位置”，folder-kinds 一句。
+  - S8 Files（`e0b018a94`、`141e94d37`）：`move` 每项可带 `before`（`null` 为末尾），同目标带位置只挪清单，清单新增 `place` 编辑；合同版本 5；Lab 内存适配器同步。`before` 可为 `null` 是实施中补的：已在这一层的项要挪到最后时，没有可写的锚点名。
+  - S9–S10（`d32cc8fed`）：`resolveDrop` 改按缝与层，新动作 `place`；控制器的 `transfer` 带位置时把已在这一层的源也放进同一批、按源的先后排；反馈画在树里（计划写的是新组件 `ExplorerDropIndicator`，实际写在 `ExplorerTree.vue` 的模板里，两个元素不值得单独成组件）；拖影贴近指针；被拖行只淡化图标与文字。
+  - S11 动画（`a444864af`）：控制器提交前发出结构变化预告（`tree/motion.ts`），树在之后的刷新里认出才放；实测发现跨目录移动时源目录的刷新先到、新行还没列出，会被误当成“落进看不见的地方”，改为父目录展开着就接着等。
+  - S12（`0a2b4526f`）：e2e 新增验收 27、28，原有拖动用例改按浅底与插入线断言；新场地放在 `r4/` 下（放在根上会让树没有空白、“拖到空白”那一步落到行上）。
+  - 验证：files 测试 109 例、explorer 的 Bun 110 例与 Vitest 23 例通过；资源管理器 e2e 18 例通过；`test:affected --typecheck --since master` 只剩已知的 llmlint 两项与 neuro-book-test-support 一项；typecheck、`docs:check`、`governance:check` 无新增问题。新应用全套 e2e 204 例：184 例通过，20 例失败，都不在资源管理器：Lab 类是开发会话首屏 15 秒内没就绪（trace 里是 Vite 连接断开、动态导入失败），产品页两例是 Chrome 崩溃（Target crashed）；停掉开发服务后重跑这 8 个文件，失败换了一批（16 例，仍是这两种）；在 master 上未改动的 worktree 单跑 `lab.e2e.ts` 同样 15 例挂 8 例，判定为本机负载（内存与 swap 都占满），不是回归。开发服务里的雾港实测了第四轮的各个场景与动画帧；收口截图（nbook、macos × 明暗，上排“周局长 → 放到老温之后（移入 人物）”，下排“移入 港务局”，无页面错误）：[r4-final-themes.webp](evidences/r4-final-themes.webp)。
 
 ## 决定
 
@@ -80,4 +87,4 @@ updated: 2026-10-14
 
 ## 下一步
 
-等开发者答第四轮评审板（落点规则、插入线、移入反馈、动画），定了以后补进 `plan.md` 与 Spec 再实施，之后重新验收。开发服务 `nbdev dev start` 起在 4217，样例作品“雾港”在本地 `.local/…/t86-explorer-polish/sample/`。合入 master 要开发者授权。
+第四轮已实施，等开发者在页面上验收。开发服务 `nbdev dev start` 起在 4217，样例作品“雾港”在本地 `.local/…/t86-explorer-polish/sample/`。合入 master 要开发者授权。
