@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workbench.editor
 owners:
   - nbook.editor
@@ -232,6 +232,17 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 21. Given 一个测试插件往 `editor.title` 贡献一个 `extensions: [".md"]`、`context: "resource"` 的按钮，When 编辑组里活动的是 `a.md`，Then 标签条右侧有“向右拆分”与这个按钮、末尾是“⋯”（里面有“用其它编辑器重新打开”）；When 切到 `b.txt`，Then 这个按钮消失；When 有两个组，Then 只有活动组画标题动作，点另一个组的标签后标题动作移过去；When 连续拆分到活动组放不下一个按钮，Then 标题行里只剩“⋯”，“⋯”与标签条都在这一组里，“⋯”里能执行拆分与贡献的项；When 点测试插件的按钮，Then 命令收到 `{address: a.md 的地址}`；When 活动的是欢迎页，Then 这个按钮不出现。
 
 Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。
+
+## 实现合同
+
+- 公开入口：命令与参数（含 `reveal`）、地址参数 `open`、`at`、公开状态键、`documentCoordinatorKey`、贡献点 `workbench.editor-area`（见“边界与兼容”）；插件定义见 [`editor/plugin.ts`](../../../packages/neuro-book/src/plugins/editor/plugin.ts)。
+- owner 与依赖方向：`nbook.editor` 拥有文档、编辑组、标题动作贡献点与会话记录（`editor.session`、`editor.recent`，project/local）；依赖 `nbook.files` 的文件客户端、命令服务、Storage、窗口的项目绑定、配置与宿主时钟/抢救能力（[`runtime.browser-host`](../runtime/browser-host.md)）。资源管理器经 `documentCoordinatorKey` 反向依赖它（可选依赖，[`workbench.files-explorer`](files-explorer.md)），不是本插件的依赖方向。
+- 不变量：
+  - 文档在第一个标签打开时建立、最后一个标签关闭前已结算（第 4 条），关闭后丢弃（`documents.test.ts`、`area.test.ts`）；
+  - 读取结果只在目标仍存活、输入修订未前进、不 dirty、无在途保存与冲突时替换正文，否则只标记“磁盘已变化”（`documents.test.ts` 的输出 16）；
+  - 同组同种编辑器的视图状态按“文档 × 组 × 编辑器”保留到标签关闭，只淘汰非活动、无 dirty/未裁决输入/在途保存的视图状态，每组每种最多 3 份（`groups.test.ts`）；
+  - 继续写作的定位绑定到打开时记下的标签与组：切换、关闭、焦点离开编辑器区、窗口停止即取消，迟到的就绪不再移动光标与焦点（`continue-writing.test.ts`、`area.test.ts` 的“继续写作”一组）；
+  - 项目换代时旧代的文档全部作废，标签按新代重新打开，旧代的读取与保存结果不应用到新代（`area.test.ts`）。
 
 ## 证据
 
