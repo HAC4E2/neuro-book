@@ -166,7 +166,7 @@ export type Resource<T> = {
     loading: Ref<boolean>;
     /** 最近一次接受数据的时刻（ISO）。 */
     receivedAt: Ref<string | null>;
-    /** 已有数据、这次重取却失败：页面显示的是上次读到的内容（`StaleNotice`，t15）。 */
+    /** 已有数据、这次重取却失败：页面显示的是上次读到的内容（`LoadState` 的旧数据形态，t15）。 */
     stale: ComputedRef<boolean>;
     reload(): void;
 };
