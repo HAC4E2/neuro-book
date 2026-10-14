@@ -729,6 +729,7 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
 - **决定点 21：没选会话时桌面右栏显示什么。** 推荐：自动选中最需要看的那个（等确认，其次工作中，再其次最近活动的），网址用 `replace` 写上 `?pane=`，不加历史；有要处理的通知时先显示通知。另一个选项：不自动选，右栏显示通知或一句引导。手机上都不自动进详情。
 - **决定点 22：通知放在哪里。** 推荐：左列表最上面一行“通知 · N 条要处理”，点了在右栏显示（`?view=notify`），顶栏的“通知要处理”也链到这里。另一个选项：保持现在的页面顶部一块（铺满之后它会挤占终端的高度）。
 - **决定点 23：Claude 会话的“更早的输出”。** 推荐：先只靠 xterm 回滚（观看开始之后的输出）；Claude 的完整历史在它的会话文件里，渲染对话记录是另一个功能，这一批不做。另一个选项：这一批顺带做“读会话文件里最近 N 条消息”的文字面板。
+  - **实测与改定（2026-10-14，第 3 批实现审查第 6 条）**：xterm 回滚这条路走不通。herdr 0.9.3 的观察流在增量帧里按光标定位逐行改写整屏、不换行滚屏，xterm 攒不下回滚；Claude 在备用屏上，herdr 报的回滚（`max_offset_from_bottom`）是 0，`pane.read` 也只能读到当前屏。开发者定：这一批不承诺 Claude 会话在面板里往回翻。终端不开回滚；读不到更早输出的会话写“只能看当前屏；更早的输出去 herdr 里翻”；omp 与没有会话键的 pane 的“更早的输出”照旧。
 - **定稿（2026-10-14）**：开发者定 19 读本机会话文件、20 只看本仓库的 pane、23 这一批只靠终端回滚；主 Agent 按推荐定 21（自动选中最需要看的那个）、22（通知放左列表最上面一行）。整体设计开发者先看截图再说，确认前不开工。开发者在产物 `sessions-design` v1 上答复（2026-10-14）：按设计稿实现（`sessions-design-go` = go）；同意 21 自动选中、22 通知放左列表最上面一行（两题都答“是”）；没有其它意见。
 
 #### 验收（实现时细化）
@@ -1323,3 +1324,25 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
     - 往 `w2:p1` 的 cat 里送过 30 行 `probe-line-*`，A 收到验收文字与按键 q、z，回归脚本把 A 的会话 id 报成了 `aaaa0004…`；
     - master 到 `3e55f78bc`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。
   - 没有验证到的地方：矮视口下 5px 仍放不下时贴底，假 Claude 的内容在屏幕上半，贴底后看到的是空行（真实 Claude 的输入框在下面，从代码推断没有这个问题）；只看了 Chrome。
+- 2026-10-14：第 3 批审查第 6 条收尾。开发者定这一批不承诺 Claude 会话在面板里往回翻；改在集成分支上，提交 `8ac72388d`，未 push。
+  - 改了什么：
+    - `TerminalView` 不开回滚（`scrollback: 0`），量列数与观看字号都不再给 14px 滑块让宽度；
+    - `/api/sessions` 的 pane 加 `history`（`session`、`pane` 或 null）。判断写在 `src/server/delivery.ts` 的 `historySource`，`readHistory` 也用它：
+      - 有会话键的，只有 omp 并且 herdr 报的回滚不是 0 才算读得到（omp 回滚为 0 时 `/api/sessions/:pane/history` 改回 409）；
+      - 没有会话键的，看回滚是否大于 0；
+    - 会话页据此判断：
+      - 读不到时在观看的模式条、手机文字视图里写“只能看当前屏；更早的输出去 herdr 里翻”；
+      - omp 的“更早的输出”按钮改看 `history`，shell 的按钮照旧；
+    - `panel-terminal` 补了一条 `history` 各种情形的用例；
+    - `docs/panel.md`、`TerminalView.md` 的“待定”改成定稿；决定点 23 补了实测与改定；`followups.md` 那条备注补了“Claude 会话在面板里往回翻只能靠它”。
+  - 门禁（在 `8ac72388d` 的工作区上）：包的 `typecheck`、`build:web` 通过；全量 `test` 416 过、0 失败；`git diff --check` 干净；`dev-panel-records` 过；`docs:check` 通过（`review-fixes/gate2-*.log`）。
+  - 浏览器验收在 4490 上做，脚本 `review-fixes/scrollback.ts`，7 条全过（`review-fixes/scrollback/`），控制台没有错误：
+    - 接管列数：1440 下 111 列（去掉扣减前是 109），1000 下 101 列，都等于框里放得下的列数；最后一列在框里，不横向滚动，xterm 没有回滚；
+    - Claude 类会话：A 的回滚是 0，1440、1000 的模式条与 390 的文字视图都写“只能看当前屏；更早的输出去 herdr 里翻”，手机上没有“更早的输出”按钮；
+    - omp：审查环境里另开 `w3:p3`，先跑 `seq 1 300`，再起名为 omp 的假会话并报会话，回滚 264 行。桌面模式条不写那句提示；手机照旧有“更早的输出”，读到回滚里的行；
+    - shell 的“更早的输出”由第 3 批脚本的 `w2:p1` 一条验。
+  - 回归：
+    - 第 3 批 `accept.ts` 39 条全过（`review-fixes/rerun2-batch3/`）；
+    - 审查修正 `review.ts` 15 条全过（`review-fixes/rerun2-review/`）。窄而高的 pane 重开成 `w3:p4`，脚本加了环境变量 `TALL_PANE`；
+    - 阶段 1 的 s1、s2、s8 共 16 条全过（`review-fixes/rerun2-stage1/`），控制台只有场景本身造的 409 `session_changed`。
+  - 验收环境：`w3:p3`、`w3:p4` 用完已关，`fake-omp/`、`fake3/` 已删，herdr 审查会话回到 `w2:p1`、`w3:p1`、`w4:p1`、`w5:p1` 四格；4490 已 SIGTERM，浏览器已关。master 到 `bc1d95e8c`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。
