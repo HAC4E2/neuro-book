@@ -3,7 +3,7 @@ import {Badge, Button, FormField, FormTextarea} from "@notnotype/nb-ui/component
 import {computed, ref, watch} from "vue";
 import {controlCharProblem} from "../../core/text-rules.js";
 import {validateAnswerValue} from "../../core/questions.js";
-import {answerText, groupQuestions, isNewQuestion, staleText} from "../host/answers.js";
+import {answerText, editingValue, groupQuestions, isNewQuestion, staleText, submittedValue} from "../host/answers.js";
 import {relativeTime} from "../host/format.js";
 import type {QuestionState} from "../host/types.js";
 import QuestionControl from "./QuestionControl.vue";
@@ -36,11 +36,8 @@ const touched = ref<Record<string, boolean>>({});
 const editing = ref<Record<string, boolean>>({});
 const note = ref("");
 
-function prefill(state: QuestionState): unknown {
-    return state.answer?.value;
-}
 function reset(): void {
-    values.value = Object.fromEntries(groups.value.answered.map((state) => [state.question.id, prefill(state)]));
+    values.value = {};
     comments.value = {};
     commenting.value = {};
     touched.value = {};
@@ -53,7 +50,9 @@ function set(id: string, value: unknown): void {
     values.value = {...values.value, [id]: value};
     touched.value = {...touched.value, [id]: true};
 }
-function startEdit(id: string): void {
+function startEdit(state: QuestionState): void {
+    const id = state.question.id;
+    values.value = {...values.value, [id]: editingValue(state, values.value, touched.value)};
     editing.value = {...editing.value, [id]: true};
 }
 /** 取消改答：取值回到已答的那份，说明也丢掉，这道题不再交。 */
@@ -64,7 +63,7 @@ function cancelEdit(state: QuestionState): void {
     touched.value = without(touched.value);
     comments.value = without(comments.value);
     commenting.value = without(commenting.value);
-    values.value = {...values.value, [id]: prefill(state)};
+    values.value = without(values.value);
 }
 
 /** 能交的题：待答的，加上点了“改答”的已答题。 */
@@ -97,7 +96,7 @@ function submit(): void {
     for (const state of chosen.value) {
         const id = state.question.id;
         // 只写了说明、没改取值的已答题：带上现在的取值，答复文件里这道题仍有取值。
-        answer[id] = values.value[id];
+        answer[id] = submittedValue(state, values.value, touched.value);
         if ((comments.value[id] ?? "").trim() !== "") notes[id] = comments.value[id]!;
     }
     emit("submit", {values: answer, comments: notes, note: note.value.trim() === "" ? null : note.value});
@@ -149,7 +148,7 @@ function submit(): void {
                     <p class="break-words">{{ answerText(state.question, state.answer?.value) }}</p>
                     <p class="nbdev-note">v{{ state.answer?.artifactVersion }} 答 · {{ state.answer ? relativeTime(state.answer.submittedAt) : "" }}<template v-if="state.answer?.comment"> · {{ state.answer.comment }}</template></p>
                     <p v-if="errors[state.question.id]" class="nbdev-danger nbdev-small" role="alert">{{ errors[state.question.id] }}</p>
-                    <Button v-if="!disabledReason" class="self-start" size="sm" variant="ghost" icon-class="i-lucide-pencil" @click="startEdit(state.question.id)">改答</Button>
+                    <Button v-if="!disabledReason" class="self-start" size="sm" variant="ghost" icon-class="i-lucide-pencil" @click="startEdit(state)">改答</Button>
                 </template>
             </fieldset>
         </section>

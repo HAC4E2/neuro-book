@@ -1,5 +1,5 @@
 import {describe, expect, test} from "bun:test";
-import {answerText, groupQuestions, isNewQuestion} from "../src/web/host/answers.js";
+import {answerText, editingValue, groupQuestions, isNewQuestion, submittedValue} from "../src/web/host/answers.js";
 import type {QuestionState, VersionQuestion} from "../src/web/host/types.js";
 
 /** 产物页侧栏的分组（t15 阶段 4 第 1 批）：待答、已答、之前几版的题、已取代与撤回。 */
@@ -27,5 +27,19 @@ describe("产物页侧栏的分组", () => {
     test("答案的文字：选项名、多选用顿号、确认题写同意与不同意", () => {
         const multi = question("m", {type: "multi"});
         expect([answerText(question("s"), "b"), answerText(multi, ["a", "b"]), answerText(question("c", {type: "confirm", options: []}), false)]).toEqual(["乙", "甲、乙", "不同意"]);
+    });
+});
+
+describe("改答的取值", () => {
+    test("先答了多选，点“改答”时控件里是现在的答案，加一项后提交的是原选项加新项；只写说明不改取值时交现在的答案", () => {
+        const multi = state(question("pick", {type: "multi"}), "answered", ["a"]);
+        const values: Record<string, unknown> = {};
+        const touched: Record<string, boolean> = {};
+        // 提交成功后表单已清空，这道题在本地没有取值；开始改答时取现在的答案。
+        expect(editingValue(multi, values, touched)).toEqual(["a"]);
+        expect(submittedValue(multi, values, touched)).toEqual(["a"]);
+        values.pick = [...(editingValue(multi, values, touched) as string[]), "b"];
+        touched.pick = true;
+        expect(submittedValue(multi, values, touched)).toEqual(["a", "b"]);
     });
 });

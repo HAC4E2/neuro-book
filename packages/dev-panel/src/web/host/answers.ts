@@ -42,6 +42,16 @@ export function isNewQuestion(question: Pick<VersionQuestion, "since">, latestVe
     return latestVersion > 1 && question.since === latestVersion;
 }
 
+/**
+ * “改答”与提交时这道题的取值。控件不在加载时预填：提交成功后表单先按提交前的题表清空、新数据随后才到，
+ * 别处（代录、另一个标签页）答的题也是推送来的，加载时的预填会漏掉它们。所以开始改答时才取现在的答案，
+ * 提交时没改过取值（只写了说明）的题直接用现在的答案。
+ */
+export function editingValue(state: QuestionState, values: Readonly<Record<string, unknown>>, touched: Readonly<Record<string, boolean>>): unknown {
+    return touched[state.question.id] ? values[state.question.id] : state.answer?.value;
+}
+export const submittedValue = editingValue;
+
 /** 作废的旧答复为什么要重答。 */
 export function staleText(state: QuestionState): string | null {
     if (!state.stale) return null;
